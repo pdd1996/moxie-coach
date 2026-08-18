@@ -1,9 +1,11 @@
-import type { Problem, Settings } from '@/lib/types'
+import type { ProblemUserState, Settings } from '@/lib/types'
 
-// ===== 开发期种子数据 =====
-// 说明：题面/题解默认只有 88 题是完整的（来自用户真实笔记），
-// 其余题目仅元数据 + 状态，用于展示题单/仪表盘的各种状态效果。
-// S0-scaffold 阶段 store 直接吃这份种子；S0-data-layer 接入后由 db.json 覆盖。
+// ===== 开发期种子数据（用户状态）=====
+// 说明：本文件只种「用户状态」（status/history/note/srsLevel/nextReviewAt/…），
+// 题目元数据（title/slug/difficulty/stage/pattern/signal）来自 src/data/problems.json，
+// 由 store 在运行期按 id 合并成完整 Problem（见 S1-F1）。
+// 题面/题解默认只有 88 题是完整的（来自用户真实笔记），其余仅状态用于展示效果。
+// S0-data-layer：db.json 不存在时由本种子生成；之后由 db.json 覆盖。
 
 const today = '2026-08-18'
 const yesterday = '2026-08-17'
@@ -75,11 +77,10 @@ const SKELETON_JS = `var merge = function(nums1, m, nums2, n) {
 };
 `
 
-export const seedProblems: Problem[] = [
+export const seedProblems: ProblemUserState[] = [
   // ===== 阶段一：线性结构 =====
   {
-    id: 88, title: '合并两个有序数组', slug: 'merge-sorted-array', difficulty: 'Easy',
-    stage: 1, pattern: '双指针（相向从后）', signal: '有序数组合并、原地操作、尾部有空位',
+    id: 88,
     status: 'pending-review', statement: STATEMENT_88,
     skeleton: { python: SKELETON_PY, javascript: SKELETON_JS },
     solution: SOLUTION_88,
@@ -103,54 +104,51 @@ export const seedProblems: Problem[] = [
       { ts: '2026-08-15T21:40:00', phase: 'reproduce', outcome: 'fail', elapsedMin: 22, pausedMin: 3, peekCount: 2, lang: 'javascript' },
     ],
   },
-  { id: 27, title: '移除元素', slug: 'remove-element', difficulty: 'Easy', stage: 1, pattern: '双指针（快慢）', signal: '原地去重/删除', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-20', srsLevel: 1, note: '快指针找值、慢指针收留' },
-  { id: 26, title: '删除有序数组中的重复项', slug: 'remove-duplicates-from-sorted-array', difficulty: 'Easy', stage: 1, pattern: '双指针（快慢）', signal: '有序原地去重', status: 'mastered', testCases: [], history: [], srsLevel: 3 },
-  { id: 1, title: '两数之和', slug: 'two-sum', difficulty: 'Easy', stage: 1, pattern: '哈希表', signal: '查重、两数配对', status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-21', lastLang: 'python' },
-  { id: 242, title: '有效的字母异位词', slug: 'valid-anagram', difficulty: 'Easy', stage: 1, pattern: '哈希表', signal: '计数比较', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1, note: '26 个字母计数数组就够，不用真哈希' },
-  { id: 125, title: '验证回文串', slug: 'valid-palindrome', difficulty: 'Easy', stage: 1, pattern: '双指针（相向）', signal: '两端向中间', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-22', srsLevel: 1 },
-  { id: 169, title: '多数元素', slug: 'majority-element', difficulty: 'Easy', stage: 1, pattern: '哈希表', signal: '计数找众数', status: 'new', testCases: [], history: [] },
-  { id: 3, title: '无重复字符的最长子串', slug: 'longest-substring-without-repeating-characters', difficulty: 'Medium', stage: 1, pattern: '滑动窗口', signal: '连续子串 + 最长', status: 'new', testCases: [], history: [] },
-  { id: 643, title: '子数组最大平均数 I', slug: 'maximum-average-subarray-i', difficulty: 'Easy', stage: 1, pattern: '滑动窗口', signal: '定长连续子数组', status: 'new', testCases: [], history: [] },
-  { id: 424, title: '替换后的最长重复字符', slug: 'longest-repeating-character-replacement', difficulty: 'Medium', stage: 1, pattern: '滑动窗口', signal: '可变窗口 + 计数', status: 'new', testCases: [], history: [] },
-  { id: 383, title: '赎金信', slug: 'ransom-note', difficulty: 'Easy', stage: 1, pattern: '哈希表', signal: '字符计数包含关系', status: 'new', testCases: [], history: [] },
-  { id: 228, title: '汇总区间', slug: 'summary-ranges', difficulty: 'Easy', stage: 1, pattern: '区间', signal: '连续段归纳', status: 'new', testCases: [], history: [] },
-  { id: 56, title: '合并区间', slug: 'merge-intervals', difficulty: 'Medium', stage: 1, pattern: '区间', signal: '区间重叠合并', status: 'new', testCases: [], history: [] },
+  { id: 27, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-20', srsLevel: 1, note: '快指针找值、慢指针收留' },
+  { id: 26, status: 'mastered', testCases: [], history: [], srsLevel: 3 },
+  { id: 1, status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-21', lastLang: 'python' },
+  { id: 242, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1, note: '26 个字母计数数组就够，不用真哈希' },
+  { id: 125, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-22', srsLevel: 1 },
+  { id: 169, status: 'new', testCases: [], history: [] },
+  { id: 3, status: 'new', testCases: [], history: [] },
+  { id: 383, status: 'new', testCases: [], history: [] },
+  { id: 228, status: 'new', testCases: [], history: [] },
+  { id: 56, status: 'new', testCases: [], history: [] },
 
   // ===== 阶段二：链表 + 栈 + 树 =====
-  { id: 206, title: '反转链表', slug: 'reverse-linked-list', difficulty: 'Easy', stage: 2, pattern: '链表（指针翻转）', signal: 'prev/cur 双指针走链', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-19', srsLevel: 1, note: 'prev=None 起，cur.next 先存后改' },
-  { id: 141, title: '环形链表', slug: 'linked-list-cycle', difficulty: 'Easy', stage: 2, pattern: '链表（快慢指针）', signal: '判环', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-19', srsLevel: 1 },
-  { id: 21, title: '合并两个有序链表', slug: 'merge-two-sorted-lists', difficulty: 'Easy', stage: 2, pattern: '链表（dummy）', signal: '新链表头用虚拟节点', status: 'mastered', testCases: [], history: [], srsLevel: 3, note: 'dummy 免特判头节点' },
-  { id: 2, title: '两数相加', slug: 'add-two-numbers', difficulty: 'Medium', stage: 2, pattern: '链表（dummy）', signal: '链表逐位运算 + 进位', status: 'new', testCases: [], history: [] },
-  { id: 19, title: '删除链表的倒数第 N 个结点', slug: 'remove-nth-node-from-end-of-list', difficulty: 'Medium', stage: 2, pattern: '链表（快慢指针）', signal: '倒数第 K', status: 'new', testCases: [], history: [] },
-  { id: 155, title: '最小栈', slug: 'min-stack', difficulty: 'Medium', stage: 2, pattern: '栈', signal: '辅助栈存历史最值', status: 'new', testCases: [], history: [] },
-  { id: 232, title: '用栈实现队列', slug: 'implement-queue-using-stacks', difficulty: 'Easy', stage: 2, pattern: '栈', signal: '双栈倒腾', status: 'new', testCases: [], history: [] },
-  { id: 104, title: '二叉树的最大深度', slug: 'maximum-depth-of-binary-tree', difficulty: 'Easy', stage: 2, pattern: '二叉树（递归）', signal: '递归三件套：当前层/往下传/往上传', status: 'learned', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
-  { id: 98, title: '验证二叉搜索树', slug: 'validate-binary-search-tree', difficulty: 'Medium', stage: 2, pattern: '二叉树（中序）', signal: 'BST 中序有序', status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
-  { id: 102, title: '二叉树的层序遍历', slug: 'binary-tree-level-order-traversal', difficulty: 'Medium', stage: 2, pattern: '二叉树（BFS）', signal: '层序 + 队列', status: 'new', testCases: [], history: [] },
-  { id: 236, title: '二叉树的最近公共祖先', slug: 'lowest-common-ancestor-of-a-binary-tree', difficulty: 'Medium', stage: 2, pattern: '二叉树（递归）', signal: '左右子树分别找', status: 'new', testCases: [], history: [] },
+  { id: 206, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-19', srsLevel: 1, note: 'prev=None 起，cur.next 先存后改' },
+  { id: 141, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-19', srsLevel: 1 },
+  { id: 21, status: 'mastered', testCases: [], history: [], srsLevel: 3, note: 'dummy 免特判头节点' },
+  { id: 2, status: 'new', testCases: [], history: [] },
+  { id: 19, status: 'new', testCases: [], history: [] },
+  { id: 155, status: 'new', testCases: [], history: [] },
+  { id: 104, status: 'learned', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
+  { id: 98, status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
+  { id: 102, status: 'new', testCases: [], history: [] },
+  { id: 236, status: 'new', testCases: [], history: [] },
 
   // ===== 阶段三：二分 + 图 + 堆 =====
-  { id: 704, title: '二分查找', slug: 'binary-search', difficulty: 'Easy', stage: 3, pattern: '二分（模板）', signal: '有序 + 查找', status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-20', lastLang: 'python' },
-  { id: 74, title: '搜索二维矩阵', slug: 'search-a-2d-matrix', difficulty: 'Medium', stage: 3, pattern: '二分（模板）', signal: '二维展开当一维', status: 'new', testCases: [], history: [] },
-  { id: 33, title: '搜索旋转排序数组', slug: 'search-in-rotated-sorted-array', difficulty: 'Medium', stage: 3, pattern: '二分（判断哪段有序）', signal: '旋转数组', status: 'new', testCases: [], history: [] },
-  { id: 200, title: '岛屿数量', slug: 'number-of-islands', difficulty: 'Medium', stage: 3, pattern: '图（BFS/DFS）', signal: '连通块计数', status: 'pending-review', testCases: [], history: [], nextReviewAt: yesterday, srsLevel: 0, note: '访问过的格子要标记，否则死循环' },
-  { id: 207, title: '课程表', slug: 'course-schedule', difficulty: 'Medium', stage: 3, pattern: '图（拓扑排序）', signal: '依赖关系判环', status: 'new', testCases: [], history: [] },
-  { id: 347, title: '前 K 个高频元素', slug: 'top-k-frequent-elements', difficulty: 'Medium', stage: 3, pattern: '堆', signal: 'Top K', status: 'new', testCases: [], history: [] },
-  { id: 215, title: '数组中的第K个最大元素', slug: 'kth-largest-element-in-an-array', difficulty: 'Medium', stage: 3, pattern: '堆', signal: '第 K 大/小', status: 'new', testCases: [], history: [] },
+  { id: 704, status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-20', lastLang: 'python' },
+  { id: 74, status: 'new', testCases: [], history: [] },
+  { id: 33, status: 'new', testCases: [], history: [] },
+  { id: 200, status: 'pending-review', testCases: [], history: [], nextReviewAt: yesterday, srsLevel: 0, note: '访问过的格子要标记，否则死循环' },
+  { id: 207, status: 'new', testCases: [], history: [] },
+  { id: 347, status: 'new', testCases: [], history: [] },
+  { id: 215, status: 'new', testCases: [], history: [] },
 
   // ===== 阶段四：DP + 贪心 + 回溯 =====
-  { id: 70, title: '爬楼梯', slug: 'climbing-stairs', difficulty: 'Easy', stage: 4, pattern: '一维DP', signal: '方案数可拆分', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-20', srsLevel: 1, note: '斐波那契，滚动两变量就够' },
-  { id: 121, title: '买卖股票的最佳时机', slug: 'best-time-to-buy-and-sell-stock', difficulty: 'Easy', stage: 4, pattern: '一维DP', signal: '维护历史最值', status: 'mastered', testCases: [], history: [], srsLevel: 3 },
-  { id: 122, title: '买卖股票的最佳时机 II', slug: 'best-time-to-buy-and-sell-stock-ii', difficulty: 'Medium', stage: 4, pattern: '贪心', signal: '所有上坡都吃', status: 'new', testCases: [], history: [] },
-  { id: 55, title: '跳跃游戏', slug: 'jump-game', difficulty: 'Medium', stage: 4, pattern: '贪心', signal: '维护可达最远', status: 'new', testCases: [], history: [] },
-  { id: 300, title: '最长递增子序列', slug: 'longest-increasing-subsequence', difficulty: 'Medium', stage: 4, pattern: '一维DP', signal: '以 i 结尾的最值', status: 'new', testCases: [], history: [] },
-  { id: 322, title: '零钱兑换', slug: 'coin-change', difficulty: 'Medium', stage: 4, pattern: '完全背包DP', signal: '无限选取凑目标', status: 'new', testCases: [], history: [] },
-  { id: 78, title: '子集', slug: 'subsets', difficulty: 'Medium', stage: 4, pattern: '回溯', signal: '所有子集：选/不选', status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
-  { id: 46, title: '全排列', slug: 'permutations', difficulty: 'Medium', stage: 4, pattern: '回溯', signal: '选择->递归->撤销', status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1 },
-  { id: 22, title: '括号生成', slug: 'generate-parentheses', difficulty: 'Medium', stage: 4, pattern: '回溯', signal: '约束下生成所有方案', status: 'new', testCases: [], history: [] },
+  { id: 70, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-20', srsLevel: 1, note: '斐波那契，滚动两变量就够' },
+  { id: 121, status: 'mastered', testCases: [], history: [], srsLevel: 3 },
+  { id: 122, status: 'new', testCases: [], history: [] },
+  { id: 55, status: 'new', testCases: [], history: [] },
+  { id: 300, status: 'new', testCases: [], history: [] },
+  { id: 322, status: 'new', testCases: [], history: [] },
+  { id: 78, status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
+  { id: 46, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1 },
+  { id: 22, status: 'new', testCases: [], history: [] },
 
   // ===== 选做：多线程 =====
-  { id: 1114, title: '按序打印', slug: 'print-in-order', difficulty: 'Easy', stage: 2, pattern: '多线程', signal: '—', status: 'new', optional: true, testCases: [], history: [] },
+  { id: 1114, status: 'new', testCases: [], history: [] },
 ]
 
 /** 默认设置（对应 PRD 第 6 节 settings） */

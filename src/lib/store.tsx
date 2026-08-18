@@ -1,16 +1,53 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
-import type { Problem, Settings } from '@/lib/types'
+import type { Problem, ProblemMeta, ProblemUserState, Settings } from '@/lib/types'
 import { seedSettings } from '@/data/seed'
+import problemsMetaJson from '@/data/problems.json'
 
-// ===== 数据访问层（S0-data-layer）=====
-// 背后换成 fetch /api/db：首次拉全量到内存，updateProblem/updateSettings 改内存 + debounce 1s
+// ===== 数据访问层（S0-data-layer + S1-F1 运行期合并）=====
+// 元数据（title/slug/difficulty/stage/pattern/signal/optional）来自 problems.json（只读种子）；
+// 用户状态（status/history/note/srsLevel/nextReviewAt/… + F2 贴题内容）来自 db.json.problems。
+// store 按 id 合并成完整 Problem 暴露给页面；updateProblem 只写用户状态，元数据永不落盘
+// （否则 problems.json 改了，db 里的 stale meta 会盖回去）。
+// 背后 fetch /api/db：首次拉全量到内存，updateProblem/updateSettings 改内存 + debounce 1s
 // 后整体 PUT。签名与 S0-scaffold 保持一致，页面只依赖这一层。
 // 单用户单标签页，不做差分/并发（PRD 第 7 节 scope out）。
 
+const PROBLEMS_META = problemsMetaJson as unknown as ProblemMeta[]
+const META_BY_ID: Record<string, ProblemMeta> = {}
+for (const m of PROBLEMS_META) META_BY_ID[String(m.id)] = m
+
+/** ProblemMeta 的字段名集合——updateProblem 落盘前剥离，防止 stale meta 写进 db */
+const META_KEYS = new Set<keyof ProblemMeta>([
+  'id', 'title', 'slug', 'difficulty', 'stage', 'pattern', 'signal', 'optional',
+])
+
+/** 从 patch/记录里剔除元数据字段，只留用户状态（保留 id 作键） */
+function stripMeta(obj: object): Partial<ProblemUserState> {
+  const out: Record<string, unknown> = {}
+  const src = obj as Record<string, unknown>
+  for (const k in obj) if (!META_KEYS.has(k as keyof ProblemMeta)) out[k] = src[k]
+  return out as Partial<ProblemUserState>
+}
+
+/**
+ * 元数据 + 用户状态 → 完整 Problem；未触碰的题补默认（new / 空 history / 空 testCases）。
+ * 读路径同样过 stripMeta：db 里若残留旧形状记录（含 title/stage/pattern 等 meta 字段，
+ * 如旧版 db.json 升级 / S9 导入旧导出），stale meta 不能盖回 problems.json 的新值。
+ */
+function mergeProblem(meta: ProblemMeta, user: ProblemUserState | undefined): Problem {
+  return {
+    ...meta,
+    ...stripMeta(user ?? {}),
+    status: user?.status ?? 'new',
+    history: user?.history ?? [],
+    testCases: user?.testCases ?? [],
+  }
+}
+
 interface Db {
-  problems: Problem[]
+  problems: ProblemUserState[]
   settings: Settings
 }
 
@@ -30,14 +67,14 @@ const DEBOUNCE_MS = 1000
 const StoreContext = createContext<StoreValue | null>(null)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  // 内部以 id 为键的 Record 维护，便于 O(1) 定位与就地更新
-  const [byId, setById] = useState<Record<string, Problem>>({})
+  // 内部以 id 为键的 Record 维护用户状态，便于 O(1) 定位与就地更新
+  const [userById, setUserById] = useState<Record<string, ProblemUserState>>({})
   const [settings, setSettings] = useState<Settings>(seedSettings)
   const [ready, setReady] = useState(false)
 
   // 最新值镜像，供 debounce/flush 回调里取到当前状态（避免闭包陈旧）
-  const byIdRef = useRef(byId)
-  byIdRef.current = byId
+  const userByIdRef = useRef(userById)
+  userByIdRef.current = userById
   const settingsRef = useRef(settings)
   settingsRef.current = settings
 
@@ -52,7 +89,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // 返回是否成功（2xx），失败时记日志并由调用方决定是否保留 dirty。
   const persist = useCallback(({ keepalive }: { keepalive: boolean }) => {
     const body = JSON.stringify({
-      problems: Object.values(byIdRef.current),
+      problems: Object.values(userByIdRef.current),
       settings: settingsRef.current,
     } satisfies Db)
     return fetch('/api/db', {
@@ -93,9 +130,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
       .then((db) => {
         if (cancelled) return
-        const map: Record<string, Problem> = {}
+        const map: Record<string, ProblemUserState> = {}
         for (const p of db.problems ?? []) map[String(p.id)] = p
-        setById(map)
+        setUserById(map)
         setSettings(db.settings ?? seedSettings)
         setReady(true)
       })
@@ -131,19 +168,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [persist])
 
-  const problems = useMemo(() => Object.values(byId), [byId])
+  // 合并后的完整题单（元数据 ∪ 用户状态）；用户状态变化时重算
+  const problems = useMemo(
+    () => PROBLEMS_META.map((m) => mergeProblem(m, userById[String(m.id)])),
+    [userById],
+  )
+
+  // 从已 memo 的 problems 派生 id→Problem 索引，让 getProblem 返回稳定引用
+  // （userById 不变时同 id 返回同一对象，避免消费者把 [problem] 放进 effect/memo deps
+  // 时每次渲染都重跑——旧 store 直接返回 byId 引用本就是稳定的，这里保持该语义）
+  const problemsById = useMemo(() => {
+    const m: Record<string, Problem> = {}
+    for (const p of problems) m[String(p.id)] = p
+    return m
+  }, [problems])
 
   const getProblem = useCallback(
-    (id: number) => byId[String(id)],
-    [byId],
+    (id: number) => problemsById[String(id)],
+    [problemsById],
   )
 
   const updateProblem = useCallback((id: number, patch: Partial<Problem>) => {
-    setById((prev) => {
+    setUserById((prev) => {
       const key = String(id)
-      const cur = prev[key]
-      if (!cur) return prev // 不存在则忽略，避免凭空造题
-      return { ...prev, [key]: { ...cur, ...patch } }
+      if (!META_BY_ID[key]) return prev // 元数据里不存在则忽略，避免凭空造题
+      const cur: ProblemUserState = prev[key] ?? { id, status: 'new', history: [] }
+      return { ...prev, [key]: { ...cur, ...stripMeta(patch), id } }
     })
     scheduleSave()
   }, [scheduleSave])
