@@ -1,46 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, Pause, Play, RotateCcw, TimerIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+// 受控计时器（S3-F3）：计时状态由父级 useAttemptTimer 持有，主视图与专注模式共享同一份，
+// 避免双实例各自计时/暂停不同步；本组件只负责展示 + 暂停/重置按钮。
+
 interface TimerProps {
-  minutes: number
-  /** 重新开始计时的钥匙（比如 phase 变化时换新值） */
-  resetKey: string | number
+  /** 剩余秒数（可为负 = 超时） */
+  remainSec: number
+  paused: boolean
+  overtime: boolean
   label: string
-  onTimeout?: () => void
+  onTogglePause: () => void
+  onReset: () => void
 }
 
 /**
  * 安静计时器：默认只显示剩余分钟（一分钟一跳，不打扰专注），
  * 点击展开秒级倒计时与暂停/重置控件。超时只用琥珀色示意，不制造紧迫感。
  */
-export function Timer({ minutes, resetKey, label, onTimeout }: TimerProps) {
-  const [remainSec, setRemainSec] = useState(minutes * 60)
-  const [paused, setPaused] = useState(false)
+export function Timer({ remainSec, paused, overtime, label, onTogglePause, onReset }: TimerProps) {
   const [expanded, setExpanded] = useState(false)
-  const firedRef = useRef(false)
-
-  useEffect(() => {
-    setRemainSec(minutes * 60)
-    setPaused(false)
-    setExpanded(false)
-    firedRef.current = false
-  }, [resetKey, minutes])
-
-  useEffect(() => {
-    if (paused) return
-    const t = setInterval(() => setRemainSec((s) => s - 1), 1000)
-    return () => clearInterval(t)
-  }, [paused, resetKey])
-
-  const overtime = remainSec < 0
-  useEffect(() => {
-    if (overtime && !firedRef.current) {
-      firedRef.current = true
-      onTimeout?.()
-    }
-  }, [overtime, onTimeout])
 
   const displaySec = overtime ? -remainSec : remainSec
   const mm = String(Math.floor(displaySec / 60)).padStart(2, '0')
@@ -80,19 +61,10 @@ export function Timer({ minutes, resetKey, label, onTimeout }: TimerProps) {
         {overtime ? '+' : ''}
         {mm}:{ss}
       </span>
-      <Button variant="ghost" size="icon" className="size-6" title="暂停/继续" onClick={() => setPaused((p) => !p)}>
+      <Button variant="ghost" size="icon" className="size-6" title="暂停/继续" onClick={onTogglePause}>
         {paused ? <Play className="size-3" /> : <Pause className="size-3" />}
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-6"
-        title="重新计时"
-        onClick={() => {
-          setRemainSec(minutes * 60)
-          setPaused(false)
-        }}
-      >
+      <Button variant="ghost" size="icon" className="size-6" title="重新计时" onClick={onReset}>
         <RotateCcw className="size-3" />
       </Button>
       <Button variant="ghost" size="icon" className="size-6" title="收起计时详情" onClick={() => setExpanded(false)}>
