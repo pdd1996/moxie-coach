@@ -30,6 +30,7 @@ export interface TestCase {
   label: string
   args: string[] // 每个参数的 JSON 字面量（字符串形式）
   expected: string // 期望输出的 JSON 字面量
+  outArg?: number // 原地修改型函数（如 88 merge 返回 None、结果在入参里）：结果在第几个入参，缺省则比返回值
 }
 
 /** 判题入口：F2 贴题时从 skeleton 解析存入。自由函数或 class Solution 方法 */
