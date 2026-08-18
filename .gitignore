@@ -13,7 +13,8 @@ dist-ssr
 *.local
 
 # 运行期数据（S0-data-layer）：db.json + 每日备份，均为本机生成
-data/
+# 前导斜杠锚定到仓库根，避免误忽略 src/data/（seed.ts、problems.json 等源码）
+/data/
 
 # Pyodide 本地打包（S0-judge D2）：约 10MB，由 setup 脚本下载到 public/pyodide/，不入库
 public/pyodide/
