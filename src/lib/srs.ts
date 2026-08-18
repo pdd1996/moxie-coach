@@ -79,3 +79,41 @@ export function patternStats(problems: Problem[]): { name: string; done: number;
     .map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b.done - a.done)
 }
+
+// ===== SRS 排期纯函数（S6 规则，S3 自解通过 / S4 默写通过先调用）=====
+// srsLevel 语义：0=刚通过待首复习，1=过了间隔[0]，…，N=intervalsDays.length 时 mastered。
+// 间隔序列默认 [3,7,14]：首通过排 +3，复习通过逐级 +7/+14，走完置 mastered 不再排期。
+
+/** 给 YYYY-MM-DD 加 n 天，返回 YYYY-MM-DD（按本地日，避免 UTC 偏移） */
+export function addDays(today: string, n: number): string {
+  const d = new Date(today + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * 通过一次（自解 / 默写通过 / 复习通过）后的排期（PRD F6）。
+ * newLevel = (current ?? -1) + 1：首通过（undefined）→ 0，复习通过逐级 +1。
+ * 达 N（intervalsDays.length）→ mastered，不再排期；否则 nextReviewAt = today + intervalsDays[newLevel]。
+ * 序列：首通过 +intervalsDays[0]（3 天）→ 复习 +intervalsDays[1]（7 天）→ +intervalsDays[2]（14 天）→ mastered。
+ */
+export function passSchedule(
+  currentSrsLevel: number | undefined,
+  intervalsDays: number[],
+  today: string,
+): { srsLevel: number; nextReviewAt?: string; mastered: boolean } {
+  const newLevel = (currentSrsLevel ?? -1) + 1
+  if (newLevel >= intervalsDays.length) return { srsLevel: newLevel, mastered: true }
+  return { srsLevel: newLevel, nextReviewAt: addDays(today, intervalsDays[newLevel]), mastered: false }
+}
+
+/** 失败一次（默写失败 / 复习失败）后的排期（PRD F6）：srsLevel 重置为 0，排 intervalsDays[0] 天后重来 */
+export function failSchedule(
+  intervalsDays: number[],
+  today: string,
+): { srsLevel: number; nextReviewAt: string } {
+  return { srsLevel: 0, nextReviewAt: addDays(today, intervalsDays[0]) }
+}
