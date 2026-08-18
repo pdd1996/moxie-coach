@@ -42,6 +42,30 @@ export interface EntrySpec {
 /** 按语言分存的判题入口 */
 export type Entry = { python?: EntrySpec; javascript?: EntrySpec }
 
+/**
+ * 用户状态：db.json.problems 每条只存这些字段（+ id 作键）。
+ * 元数据（title/slug/difficulty/stage/pattern/signal/optional）来自 problems.json，
+ * 运行期由 store 合并进 Problem。未触碰的题不在 db 里，合并时补默认值。
+ * F2 贴题时写入 statement/skeleton/solution/testCases/entry（见 S2-F2）。
+ */
+export interface ProblemUserState {
+  id: number
+  status: ProblemStatus
+  history: AttemptHistory[]
+  note?: string
+  hintCard?: string
+  srsLevel?: number
+  nextReviewAt?: string
+  lastCode?: { python?: string; javascript?: string }
+  lastLang?: Lang
+  // F2 用户内容（贴题写入）
+  statement?: string
+  skeleton?: { python?: string; javascript?: string }
+  solution?: string
+  testCases?: TestCase[]
+  entry?: Entry
+}
+
 export interface AttemptHistory {
   ts: string
   phase: 'attempt' | 'reproduce' | 'review'
@@ -52,20 +76,12 @@ export interface AttemptHistory {
   lang: 'python' | 'javascript'
 }
 
-export interface Problem extends ProblemMeta {
-  status: ProblemStatus
-  statement?: string // 题面 markdown（用户自贴）
-  skeleton?: { python?: string; javascript?: string }
-  solution?: string // 题解 markdown（用户自贴或 AI 生成）
+/**
+ * 完整题：元数据（problems.json）+ 用户状态（db.json）运行期合并。
+ * `testCases` 在合并层补默认 `[]`，故此处 required（ProblemUserState 里是可选）。
+ */
+export type Problem = ProblemMeta & Omit<ProblemUserState, 'testCases'> & {
   testCases: TestCase[]
-  entry?: Entry // 判题入口（v1.2：从 skeleton 解析存入，未贴题/多线程题为空）
-  note?: string // 一句话笔记：什么时候用这个套路
-  hintCard?: string // AI 下次提示卡（F7.4 生成，复习时展示在笔记上方）
-  srsLevel?: number // SRS 当前等级：0=刚通过待首复习，N=intervalsDays.length 时置 mastered
-  nextReviewAt?: string // YYYY-MM-DD
-  history: AttemptHistory[]
-  lastCode?: { python?: string; javascript?: string } // 各语言上次代码
-  lastLang?: 'python' | 'javascript' // 该题上次使用的语言，打开题时默认选中
 }
 
 export type Lang = 'python' | 'javascript'

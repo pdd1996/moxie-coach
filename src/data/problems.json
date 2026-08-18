@@ -149,5 +149,11 @@
   { "id": 530, "title": "二叉搜索树的最小绝对差", "slug": "minimum-absolute-difference-in-bst", "difficulty": "Easy", "stage": 2, "pattern": "二叉树（中序）" },
   { "id": 637, "title": "二叉树的层平均值", "slug": "average-of-levels-in-binary-tree", "difficulty": "Easy", "stage": 2, "pattern": "二叉树（BFS）" },
   { "id": 909, "title": "蛇梯棋", "slug": "snakes-and-ladders", "difficulty": "Medium", "stage": 3, "pattern": "图（BFS）" },
-  { "id": 918, "title": "环形子数组的最大和", "slug": "maximum-sum-circular-subarray", "difficulty": "Medium", "stage": 1, "pattern": "数组（Kadane）" }
+  { "id": 918, "title": "环形子数组的最大和", "slug": "maximum-sum-circular-subarray", "difficulty": "Medium", "stage": 1, "pattern": "数组（Kadane）" },
+
+  { "id": 78, "title": "子集", "slug": "subsets", "difficulty": "Medium", "stage": 4, "pattern": "回溯", "signal": "所有子集：选/不选" },
+  { "id": 206, "title": "反转链表", "slug": "reverse-linked-list", "difficulty": "Easy", "stage": 2, "pattern": "链表（指针翻转）", "signal": "prev/cur 双指针走链" },
+  { "id": 347, "title": "前 K 个高频元素", "slug": "top-k-frequent-elements", "difficulty": "Medium", "stage": 3, "pattern": "堆", "signal": "Top K" },
+  { "id": 704, "title": "二分查找", "slug": "binary-search", "difficulty": "Easy", "stage": 3, "pattern": "二分（模板）", "signal": "有序 + 查找" },
+  { "id": 1114, "title": "按序打印", "slug": "print-in-order", "difficulty": "Easy", "stage": 2, "pattern": "多线程", "signal": "—", "optional": true }
 ]
