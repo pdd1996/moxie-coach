@@ -14,7 +14,7 @@ import { Separator } from '@/components/ui/separator'
 import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
 import { useProblem } from '@/lib/store'
-import { STATUS_LABEL, leetcodeUrl, type Problem } from '@/lib/types'
+import { STATUS_LABEL, leetcodeUrl } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Phase = 'paste' | 'attempt' | 'solution' | 'reproduce' | 'done'
@@ -33,7 +33,7 @@ const DEMO_HINTS = [
 
 export default function ProblemView() {
   const { id } = useParams()
-  const problem = useProblem(Number(id)) as Problem | undefined
+  const problem = useProblem(Number(id))
 
   const [phase, setPhase] = useState<Phase>(() => (problem?.statement ? 'attempt' : 'paste'))
   const [lang, setLang] = useState<Lang>('python')
@@ -295,7 +295,7 @@ export default function ProblemView() {
               <div className="rounded-xl border">
                 <div className="flex items-center justify-between border-b px-3 py-2">
                   <span className="text-sm font-bold">测试用例（{problem.testCases.length}）</span>
-                  <Button size="sm" onClick={runCases} disabled={running || phase === 'solution'}>
+                  <Button size="sm" onClick={runCases} disabled={running}>
                     <Play className="size-3.5" /> {running ? '运行中…' : '运行用例'}
                   </Button>
                 </div>

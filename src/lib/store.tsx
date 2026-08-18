@@ -75,8 +75,12 @@ export function useSettings(): Settings {
   return useStore().settings
 }
 
-/** 暴露更新方法，供页面命令式调用 */
-export function useStoreActions() {
-  const { updateProblem, updateSettings } = useStore()
-  return { updateProblem, updateSettings }
+/** 局部 patch 更新某题（命令式，对齐 spec 的 updateProblem(id, patch)） */
+export function useUpdateProblem() {
+  return useStore().updateProblem
+}
+
+/** 局部 patch 更新设置（命令式，对齐 spec 的 updateSettings(patch)） */
+export function useUpdateSettings() {
+  return useStore().updateSettings
 }
