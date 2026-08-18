@@ -46,3 +46,11 @@ S0-scaffold（类型与 store）、S2-F2（`entry` 由贴题 parse 存入 proble
 - 不做 LeetCode 官方提交（PRD scope out）。
 - 不做多线程题判题（无 `entry`，直接禁用运行）。
 - 不做代码安全沙箱加固（用户自己的代码，单机自用，worker 隔离足够）。
+
+## 实现偏离/补充（落地时确认）
+
+- **原地修改型比对（新增 `TestCase.outArg?: number`）**：spec 原写「取返回值比对」，但验收题 88 `merge` 返回 `None`、结果在入参 `nums1` 里，严格取返回值会永远判失败。改为：`outArg` 指明结果在第几个入参，有则比该入参调用后的值、无则比返回值。seed 88 四条用例补 `outArg: 0`；S2 贴题时按用例标注。
+- **「忽略元素顺序」收紧为集合型**：spec 原写「数组/对象排序后深比」。照做会让 88 的错误顺序解（如 `[1,2,3,5,6,2]`）排序后等于期望而**误判通过**。改为：仅当数组元素本身是数组/对象（集合型结果，如 permutations/subsets/threeSum）才忽略该层顺序；原始值数组（如 88 的 `[1,2,2,3,5,6]`）顺序敏感，错误顺序必须判失败。
+- **文件补充**：除 spec 所列外另增 `src/lib/judge/shared.ts`（共享类型）、`src/lib/judge/js.worker.ts`（JS 判题 module worker，与 `pyodide.worker.ts` 同款，规避 COEP require-corp 下 blob: worker 的 CORP 不确定性）、`scripts/setup-pyodide.mjs`（`public/pyodide/` 已 gitignore，换机后 `node scripts/setup-pyodide.mjs` 拉取）。
+- **离线打包**：用 `npm pack pyodide` 取官方 npm tarball（`pyodide-core` 同源，约 14MB 解压后），裁成 6 个核心文件入 `public/pyodide/`。`pyodide-314.0.5`（Python 3.14）。dev server 已验：`/pyodide/*` 200、`pyodide.asm.wasm` 以 `application/wasm` 服务、首页带 COOP/COEP 头 → 跨源隔离生效，`SharedArrayBuffer` 可用。
+- **已验证机制**（Node 复刻 + 真实 vendored Pyodide）：compare 宽松比对（含 88 顺序敏感性）；Python 调用路径（function + class Solution method + outArg 原地读回）；JS 取入口（function/var/const/let 四态）；SAB 中断（写信号触发 KeyboardInterrupt，且 Pyodide 之后仍可用）。自测脚本在 `scripts/selftest-*.mjs/.ts`。浏览器 UI 端到端（worker spawn + 运行用例按钮）待人工点验。
