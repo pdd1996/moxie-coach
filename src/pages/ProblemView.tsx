@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft, BookOpen, CheckCircle2, Eye, EyeOff, ExternalLink,
-  Lightbulb, Maximize2, Minimize2, PenLine, Play, Sparkles, XCircle,
+  Lightbulb, Maximize2, Minimize2, PenLine, Play, Sparkles, Upload, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,8 +13,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
-import { useProblem } from '@/lib/store'
-import { STATUS_LABEL, leetcodeUrl, type Lang } from '@/lib/types'
+import { TestCaseEditor } from '@/components/TestCaseEditor'
+import { useProblem, useProblems, useUpdateProblem, useSettings } from '@/lib/store'
+import { STATUS_LABEL, leetcodeUrl, type Lang, type TestCase } from '@/lib/types'
+import { parseEntry } from '@/lib/entry'
+import { parseMdFile, parseExamples } from '@/lib/import'
 import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +35,11 @@ const DEMO_HINTS = [
 export default function ProblemView() {
   const { id } = useParams()
   const problem = useProblem(Number(id))
+  const updateProblem = useUpdateProblem()
+  const settings = useSettings()
+  // 题库合法题号集合：批量导入时先校验再计数/落库（store 会忽略不存在的题，但计数不能虚高）
+  const allProblems = useProblems()
+  const validIds = useMemo(() => new Set(allProblems.map((p) => p.id)), [allProblems])
 
   const [phase, setPhase] = useState<Phase>(() => (problem?.statement ? 'attempt' : 'paste'))
   const [lang, setLang] = useState<Lang>(problem?.lastLang ?? 'python')
@@ -48,6 +56,29 @@ export default function ProblemView() {
   const [zen, setZen] = useState(false)
   const [zenStatementOpen, setZenStatementOpen] = useState(false)
   const [timeUpMsg, setTimeUpMsg] = useState<string | null>(null)
+
+  // 贴题面板暂存（S2-F2）：本地 state，点「贴好了」一次性 updateProblem（含 entry）
+  const [pasteStatement, setPasteStatement] = useState(problem?.statement ?? '')
+  const [pasteSkeletonPy, setPasteSkeletonPy] = useState(problem?.skeleton?.python ?? '')
+  const [pasteSkeletonJs, setPasteSkeletonJs] = useState(problem?.skeleton?.javascript ?? '')
+  const [pasteSolution, setPasteSolution] = useState(problem?.solution ?? '')
+  const [pasteCases, setPasteCases] = useState<TestCase[]>(problem?.testCases ?? [])
+  const [importMsg, setImportMsg] = useState<string | null>(null)
+  // 贴题面板折叠区：另一种语言模板 / 题解 / 手动调整用例（技术细节默认藏起来）
+  const [showOtherLang, setShowOtherLang] = useState(false)
+  const [showSolution, setShowSolution] = useState(false)
+  const [showManualCases, setShowManualCases] = useState(false)
+
+  // 题面变化时自动从「输入：/输出：」示例解析用例（仅当前无用例时，避免覆盖手动编辑）。
+  // 比 AI 提取更准——正则不会瞎编具体数值；AI 补全属 V1.1（F7），不在此做。
+  useEffect(() => {
+    if (pasteCases.length > 0) return
+    const t = window.setTimeout(() => {
+      const c = parseExamples(pasteStatement)
+      if (c.length) setPasteCases(c)
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [pasteStatement, pasteCases.length])
 
   // 专注模式下 Esc 退出
   useEffect(() => {
@@ -135,6 +166,102 @@ export default function ProblemView() {
     setPhase('done')
   }
 
+  // 贴题保存（S2-F2）：对已粘贴的每种语言 skeleton 分别解析 entry，按语言分存；
+  // 连同题面/模板/题解/用例一次性落库，然后进尝试阶段。
+  const savePaste = () => {
+    if (!problem) return
+    // 首次贴题（此前无题面）才把编辑器预载为模板签名；从刷题阶段回来补用例则保留用户已写代码
+    const firstPaste = !problem.statement
+    const skeleton = { python: pasteSkeletonPy, javascript: pasteSkeletonJs }
+    const entry = {
+      ...(pasteSkeletonPy.trim() ? { python: parseEntry(pasteSkeletonPy, 'python') } : {}),
+      ...(pasteSkeletonJs.trim() ? { javascript: parseEntry(pasteSkeletonJs, 'javascript') } : {}),
+    }
+    updateProblem(problem.id, {
+      statement: pasteStatement,
+      skeleton,
+      solution: pasteSolution || undefined,
+      // 兜底：自动解析若未及时触发（用户贴完立刻点贴好了），保存前再解析一次
+      testCases: pasteCases.length ? pasteCases : parseExamples(pasteStatement),
+      entry,
+    })
+    if (firstPaste) setCode(lang === 'python' ? pasteSkeletonPy : pasteSkeletonJs)
+    setPhase('attempt')
+  }
+
+  // 逃生口（S2-F2 死锁修复）：刷题阶段题头「编辑题目」回到贴题面板，回填当前题字段，
+  // 便于补用例 / 改题面。默写阶段不开放（避免借机看题解）。
+  const editProblem = () => {
+    if (!problem) return
+    setPasteStatement(problem.statement ?? '')
+    setPasteSkeletonPy(problem.skeleton?.python ?? '')
+    setPasteSkeletonJs(problem.skeleton?.javascript ?? '')
+    setPasteSolution(problem.solution ?? '')
+    setPasteCases(problem.testCases ?? [])
+    setImportMsg(null)
+    setPhase('paste')
+  }
+
+  // 从题面文本解析示例用例，填入用例表（覆盖现有草稿）。
+  const fillCasesFromStatement = () => {
+    const cases = parseExamples(pasteStatement)
+    if (!cases.length) {
+      setImportMsg('未从题面解析到示例用例（需「输入：…/输出：…」格式），可手动添加')
+      return
+    }
+    // 已有用例时二次确认，避免草稿静默覆盖手填内容
+    if (
+      pasteCases.length &&
+      !window.confirm(`将用 ${cases.length} 条解析草稿覆盖现有 ${pasteCases.length} 条用例，继续？`)
+    ) {
+      return
+    }
+    setPasteCases(cases)
+    setImportMsg(`从题面解析出 ${cases.length} 条用例草稿`)
+  }
+
+  // 批量导入：多选 .md 笔记，按文件名题号匹配题库并直接落库。
+  // 当前题若被命中，同步回填面板字段供进一步微调。
+  const onBatchImport = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    let imported = 0
+    let skipped = 0
+    let hitCurrent = false
+    for (const file of Array.from(files)) {
+      let text: string
+      try {
+        text = await file.text()
+      } catch (err) {
+        console.error('[import] 读取失败：', file.name, err)
+        skipped++
+        continue
+      }
+      const parsed = parseMdFile(file.name, text, settings.defaultLang)
+      if (!parsed) { skipped++; continue }
+      // 题库里无此题号 → 跳过（不落库也不计数）
+      if (!validIds.has(parsed.id)) { skipped++; continue }
+      const entry = {
+        ...(parsed.skeleton.python?.trim() ? { python: parseEntry(parsed.skeleton.python, 'python') } : {}),
+        ...(parsed.skeleton.javascript?.trim() ? { javascript: parseEntry(parsed.skeleton.javascript, 'javascript') } : {}),
+      }
+      updateProblem(parsed.id, {
+        statement: parsed.statement,
+        skeleton: parsed.skeleton,
+        testCases: parsed.testCases,
+        entry,
+      })
+      imported++
+      if (problem && parsed.id === problem.id) {
+        hitCurrent = true
+        setPasteStatement(parsed.statement)
+        setPasteSkeletonPy(parsed.skeleton.python ?? '')
+        setPasteSkeletonJs(parsed.skeleton.javascript ?? '')
+        setPasteCases(parsed.testCases)
+      }
+    }
+    setImportMsg(`导入 ${imported} 题${skipped ? `，跳过 ${skipped} 个未匹配` : ''}${hitCurrent ? '（含当前题，已回填）' : ''}`)
+  }
+
   const timerProps = {
     minutes: TIME_LIMIT[problem.difficulty],
     resetKey: phase,
@@ -171,10 +298,19 @@ export default function ProblemView() {
   )
 
   const inFlow = phase === 'attempt' || phase === 'reproduce'
+  // 可回贴题面板编辑的阶段：默写(reproduce)不开放，避免借机看题解
+  const canEdit = phase === 'attempt' || phase === 'solution' || phase === 'done'
+  // 模板默认只显示用户默认语言，另一种折叠（多数人只用一种）
+  const primaryLang = settings.defaultLang
+  const otherLang: Lang = primaryLang === 'python' ? 'javascript' : 'python'
+  const primarySkeleton = primaryLang === 'python' ? pasteSkeletonPy : pasteSkeletonJs
+  const setPrimarySkeleton = primaryLang === 'python' ? setPasteSkeletonPy : setPasteSkeletonJs
+  const otherSkeleton = otherLang === 'python' ? pasteSkeletonPy : pasteSkeletonJs
+  const setOtherSkeleton = otherLang === 'python' ? setPasteSkeletonPy : setPasteSkeletonJs
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      {/* 顶栏：只留必需品 -- 返回 / 标题 / 安静的时钟 */}
+      {/* 顶栏：只留必需品 -- 返回 / 标题 / 编辑题目 / 安静的时钟 */}
       <div className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
           <Link to="/problems"><ArrowLeft className="size-4" /></Link>
@@ -182,7 +318,14 @@ export default function ProblemView() {
         <h1 className="truncate text-lg font-bold">
           <span className="font-mono text-muted-foreground">#{problem.id}</span> {problem.title}
         </h1>
-        {inFlow && <div className="ml-auto shrink-0"><Timer {...timerProps} /></div>}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {canEdit && (
+            <Button variant="ghost" size="sm" onClick={editProblem} title="回到贴题面板编辑题面/模板/用例">
+              <PenLine className="size-3.5" /> 编辑题目
+            </Button>
+          )}
+          {inFlow && <Timer {...timerProps} />}
+        </div>
       </div>
 
       {/* 时间到的轻提醒：不弹窗、不拦截，只是温柔地说一句 */}
@@ -192,29 +335,135 @@ export default function ProblemView() {
         </div>
       )}
 
-      {/* ===== 贴题面板 ===== */}
+      {/* ===== 贴题面板（S2-F2）===== */}
       {phase === 'paste' && (
         <div className="mx-auto max-w-2xl space-y-4 rounded-xl border bg-card p-6">
           <div>
             <h2 className="text-lg font-bold">首次打开，先贴题 📋</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              从 LeetCode 把题面复制过来（或从现有笔记批量导入），贴一次永久本地缓存。
+              把 LeetCode 题目描述（含示例）整段粘进来，用例会自动识别；再贴代码模板就能开始。
             </p>
           </div>
-          {[
-            { label: '① 题面（markdown）', ph: '粘贴 LeetCode 题目描述 + 示例…', rows: 8 },
-            { label: '② 初始代码模板（可选）', ph: '粘贴编辑器里的函数签名，默写模式会保留它…', rows: 4 },
-            { label: '③ 题解（可稍后补）', ph: '粘贴官方/社区题解…', rows: 4 },
-          ].map((f) => (
-            <div key={f.label} className="space-y-1.5">
-              <div className="text-sm font-medium">{f.label}</div>
-              <Textarea placeholder={f.ph} rows={f.rows} />
-            </div>
-          ))}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">原型演示：贴题流程示意，暂不保存</p>
-            <Button onClick={() => setPhase('attempt')}>贴好了，开始刷题</Button>
+
+          {/* ① 题面（唯一必填）—— 用例自动从「输入：/输出：」示例解析 */}
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium">① 题面（整段复制 LeetCode 描述，含示例）</div>
+            <Textarea
+              value={pasteStatement}
+              onChange={(e) => setPasteStatement(e.target.value)}
+              placeholder={'粘贴 LeetCode 题目描述 + 示例…\n用例会从「输入：…/输出：…」自动识别，无需手填。'}
+              rows={8}
+            />
+            {pasteCases.length > 0 ? (
+              <div className="rounded-lg bg-muted/40 p-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="mr-1 inline size-3.5" />
+                    已从示例识别 {pasteCases.length} 条用例
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={fillCasesFromStatement} title="重新从题面示例解析">
+                    重新解析
+                  </Button>
+                </div>
+                <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground">
+                  {pasteCases.map((tc) => (
+                    <li key={tc.label} className="truncate">
+                      {tc.label}：输入 {tc.args.join(', ')} → 期望 {tc.expected}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              pasteStatement.trim() && (
+                <p className="text-xs text-muted-foreground">
+                  未识别到「输入：…/输出：…」示例，可点下面「手动调整用例」补，或直接贴好开始。
+                </p>
+              )
+            )}
           </div>
+
+          {/* ② 代码模板（默认只显示用户默认语言，另一种折叠） */}
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium">
+              ② 代码模板（{primaryLang === 'python' ? 'Python' : 'JavaScript'}）
+            </div>
+            <Textarea
+              value={primarySkeleton}
+              onChange={(e) => setPrimarySkeleton(e.target.value)}
+              placeholder={primaryLang === 'python' ? 'def majorityElement(nums):…' : 'var majorityElement = function(nums) {'}
+              rows={5}
+              className="font-mono text-xs"
+            />
+            <button
+              type="button"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => setShowOtherLang((v) => !v)}
+            >
+              {showOtherLang ? '▾' : '▸'} 也填 {otherLang === 'python' ? 'Python' : 'JavaScript'} 模板（可选）
+            </button>
+            {showOtherLang && (
+              <Textarea
+                value={otherSkeleton}
+                onChange={(e) => setOtherSkeleton(e.target.value)}
+                placeholder={otherLang === 'python' ? 'def majorityElement(nums):…' : 'var majorityElement = function(nums) {'}
+                rows={5}
+                className="font-mono text-xs"
+              />
+            )}
+          </div>
+
+          {/* ③ 题解（折叠，可稍后补） */}
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => setShowSolution((v) => !v)}
+            >
+              {showSolution ? '▾' : '▸'} ③ 题解（可稍后补）
+            </button>
+            {showSolution && (
+              <Textarea
+                value={pasteSolution}
+                onChange={(e) => setPasteSolution(e.target.value)}
+                placeholder="粘贴官方/社区题解…"
+                rows={4}
+              />
+            )}
+          </div>
+
+          {/* ④ 手动调整用例（折叠——技术细节藏这里，正常无需打开） */}
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => setShowManualCases((v) => !v)}
+            >
+              {showManualCases ? '▾' : '▸'} 手动调整用例（高级：改参数/期望；原地修改型题在此选「入参N」）
+            </button>
+            {showManualCases && (
+              <div className="rounded-lg border p-2">
+                <TestCaseEditor testCases={pasteCases} onChange={setPasteCases} />
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+              <Upload className="size-3.5" /> 批量导入笔记（.md）
+              <input
+                type="file"
+                multiple
+                accept=".md,text/markdown"
+                className="hidden"
+                onChange={(e) => {
+                  void onBatchImport(e.target.files)
+                  e.target.value = '' // 重置，允许重选同一批文件
+                }}
+              />
+            </label>
+            <Button onClick={savePaste}>贴好了，开始刷题</Button>
+          </div>
+          {importMsg && <p className="text-xs text-muted-foreground">{importMsg}</p>}
         </div>
       )}
 
