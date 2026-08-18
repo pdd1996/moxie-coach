@@ -9,44 +9,21 @@ import { Separator } from '@/components/ui/separator'
 import { Heatmap } from '@/components/Heatmap'
 import { useProblems } from '@/lib/store'
 import { seedHeatmap, seedStats } from '@/data/seed'
-import { STAGE_INFO, type Problem, type Stage } from '@/lib/types'
-
-const TODAY = '2026-08-18'
-
-const doneStatuses = ['self-solved', 'learned', 'reviewing', 'mastered']
-const isDone = (p: Problem) => doneStatuses.includes(p.status)
+import { STAGE_INFO } from '@/lib/types'
+import { reviewQueue, suggestedNew, stageProgress, patternStats, overdueDays, todayStr } from '@/lib/srs'
 
 export default function Dashboard() {
   const problems = useProblems()
+  const today = todayStr()
 
-  const { reviewQueue, suggested, stageProgress, patternStats } = useMemo(() => {
-    const reviewQueue = problems
-      .filter((p) => p.nextReviewAt && p.nextReviewAt <= TODAY && p.status !== 'mastered')
-      .sort((a, b) => a.nextReviewAt!.localeCompare(b.nextReviewAt!))
-
-    const suggested = problems.find((p) => p.status === 'new' && !p.optional) ?? problems[0]
-
-    const stageProgress = ([1, 2, 3, 4] as Stage[]).map((s) => {
-      const all = problems.filter((p) => p.stage === s && !p.optional)
-      return { stage: s, done: all.filter(isDone).length, total: all.length }
-    })
-
-    const patternStats = Object.entries(
-      problems
-        .filter((p) => !p.optional)
-        .reduce<Record<string, { done: number; total: number }>>((acc, p) => {
-          const key = p.pattern.split('（')[0]
-          acc[key] ??= { done: 0, total: 0 }
-          acc[key].total++
-          if (isDone(p)) acc[key].done++
-          return acc
-        }, {}),
-    )
-      .filter(([, v]) => v.total >= 2)
-      .sort((a, b) => b[1].done - a[1].done)
-
-    return { reviewQueue, suggested, stageProgress, patternStats }
-  }, [problems])
+  const { queue, suggested, stages, patterns } = useMemo(() => {
+    return {
+      queue: reviewQueue(problems, today),
+      suggested: suggestedNew(problems),
+      stages: stageProgress(problems),
+      patterns: patternStats(problems),
+    }
+  }, [problems, today])
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
@@ -81,12 +58,12 @@ export default function Dashboard() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               今日任务
-              <Badge variant="secondary">{reviewQueue.length} 道复习</Badge>
+              <Badge variant="secondary">{queue.length} 道复习</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {reviewQueue.map((p) => {
-              const overdue = p.nextReviewAt! < TODAY
+            {queue.map((p) => {
+              const days = overdueDays(p, today)
               return (
                 <Link
                   key={p.id}
@@ -99,7 +76,7 @@ export default function Dashboard() {
                     <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">{p.pattern}</Badge>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    {overdue && <Badge variant="destructive">逾期 1 天</Badge>}
+                    {days > 0 && <Badge variant="destructive">逾期 {days} 天</Badge>}
                     <Badge variant="secondary">默写重做</Badge>
                     <ArrowRight className="size-4 text-muted-foreground" />
                   </div>
@@ -134,7 +111,7 @@ export default function Dashboard() {
             <CardTitle className="text-base">阶段进度</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {stageProgress.map(({ stage, done, total }) => (
+            {stages.map(({ stage, done, total }) => (
               <div key={stage}>
                 <div className="mb-1 flex items-baseline justify-between">
                   <span className="text-sm font-medium">{STAGE_INFO[stage].title.split(' · ')[0]}</span>
@@ -155,7 +132,7 @@ export default function Dashboard() {
             <CardTitle className="text-base">套路掌握</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {patternStats.slice(0, 6).map(([name, { done, total }]) => (
+            {patterns.slice(0, 6).map(({ name, done, total }) => (
               <div key={name} className="flex items-center gap-3">
                 <span className="w-20 shrink-0 text-sm">{name}</span>
                 <Progress value={(done / total) * 100} className="h-2" />

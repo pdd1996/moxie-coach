@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, ExternalLink } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -36,6 +36,9 @@ function ProblemRow({ p }: { p: Problem }) {
         <Link to={`/problem/${p.id}`} className="font-medium hover:underline">
           {p.title}
         </Link>
+        {p.optional && (
+          <span className="ml-2 align-middle text-[10px] text-muted-foreground/80">选做</span>
+        )}
       </TableCell>
       <TableCell className={cn('text-xs font-medium', DIFF_BADGE[p.difficulty])}>{p.difficulty}</TableCell>
       <TableCell className="text-xs">{p.pattern}</TableCell>
@@ -76,6 +79,20 @@ export default function ProblemList() {
         (!kw || p.title.toLowerCase().includes(kw) || String(p.id).includes(kw) || p.pattern.includes(kw)),
     )
   }, [problems, q, stage])
+
+  // 阶段内再按套路分组（pattern 主名升序，组内按题号）
+  const grouped = useMemo(() => {
+    const groups = new Map<string, Problem[]>()
+    for (const p of filtered) {
+      const key = p.pattern
+      const arr = groups.get(key)
+      if (arr) arr.push(p)
+      else groups.set(key, [p])
+    }
+    return [...groups.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hans'))
+      .map(([pattern, rows]) => ({ pattern, rows: rows.sort((x, y) => x.id - y.id) }))
+  }, [filtered])
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-8">
@@ -119,8 +136,17 @@ export default function ProblemList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((p) => (
-                    <ProblemRow key={p.id} p={p} />
+                  {grouped.map(({ pattern, rows }) => (
+                    <Fragment key={pattern}>
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableCell colSpan={7} className="py-1.5 text-xs font-medium text-muted-foreground">
+                          {pattern} · {rows.length} 题
+                        </TableCell>
+                      </TableRow>
+                      {rows.map((p) => (
+                        <ProblemRow key={p.id} p={p} />
+                      ))}
+                    </Fragment>
                   ))}
                   {filtered.length === 0 && (
                     <TableRow>
