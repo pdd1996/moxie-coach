@@ -15,15 +15,15 @@ import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
 import { TestCaseEditor } from '@/components/TestCaseEditor'
 import { useProblem, useProblems, useUpdateProblem, useSettings } from '@/lib/store'
-import { STATUS_LABEL, leetcodeUrl, type Lang, type TestCase } from '@/lib/types'
+import { STATUS_LABEL, leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
 import { parseEntry } from '@/lib/entry'
 import { parseMdFile, parseExamples } from '@/lib/import'
+import { passSchedule, todayStr } from '@/lib/srs'
+import { useAttemptTimer } from '@/lib/useAttemptTimer'
 import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
 import { cn } from '@/lib/utils'
 
 type Phase = 'paste' | 'attempt' | 'solution' | 'reproduce' | 'done'
-
-const TIME_LIMIT: Record<string, number> = { Easy: 15, Medium: 25, Hard: 25 }
 
 // 原型演示：AI 分层提示的假数据（对应「找入口三步法」）
 const DEMO_HINTS = [
@@ -42,8 +42,10 @@ export default function ProblemView() {
   const validIds = useMemo(() => new Set(allProblems.map((p) => p.id)), [allProblems])
 
   const [phase, setPhase] = useState<Phase>(() => (problem?.statement ? 'attempt' : 'paste'))
-  const [lang, setLang] = useState<Lang>(problem?.lastLang ?? 'python')
-  const [code, setCode] = useState(problem?.skeleton?.[problem?.lastLang ?? 'python'] ?? '')
+  // 默认语言：优先上次用的，其次用户设置 defaultLang，最后兜底 python
+  // （types 注释：defaultLang = 新题/无 lastLang 时的默认语言；原先硬编码 python 会无视设置）
+  const [lang, setLang] = useState<Lang>(problem?.lastLang ?? settings.defaultLang ?? 'python')
+  const [code, setCode] = useState(problem?.skeleton?.[lang] ?? '')
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Record<string, CaseResult> | null>(null)
   const [hintLevel, setHintLevel] = useState(0)
@@ -64,6 +66,9 @@ export default function ProblemView() {
   const [pasteSolution, setPasteSolution] = useState(problem?.solution ?? '')
   const [pasteCases, setPasteCases] = useState<TestCase[]>(problem?.testCases ?? [])
   const [importMsg, setImportMsg] = useState<string | null>(null)
+  // attempt 阶段状态（S3-F3）
+  const [notice, setNotice] = useState<string | null>(null) // 无题解兜底等内联提示
+  const [doneKind, setDoneKind] = useState<'reproduce' | 'self-solved' | 'skipped'>('reproduce') // 完成态分支
   // 贴题面板折叠区：另一种语言模板 / 题解 / 手动调整用例（技术细节默认藏起来）
   const [showOtherLang, setShowOtherLang] = useState(false)
   const [showSolution, setShowSolution] = useState(false)
@@ -88,6 +93,14 @@ export default function ProblemView() {
     return () => window.removeEventListener('keydown', h)
   }, [zen])
 
+  // 进入 attempt 置 in-progress（S3-F3）：仅从 new 进入时置，不覆盖已自解/已掌握/复习中等状态
+  useEffect(() => {
+    if (problem && phase === 'attempt' && problem.status === 'new') {
+      updateProblem(problem.id, { status: 'in-progress' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
   if (!problem) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -101,6 +114,7 @@ export default function ProblemView() {
     setLang(l)
     setCode((prev) => (phase === 'reproduce' ? problem.skeleton?.[l] ?? '' : prev))
     setResults(null)
+    updateProblem(problem.id, { lastLang: l })
   }
 
   // 当前语言的判题入口；无 entry（未贴题 / 多线程）则禁用运行
@@ -163,6 +177,59 @@ export default function ProblemView() {
 
   const saveNote = () => {
     setNoteOpen(false)
+    setDoneKind('reproduce')
+    setPhase('done')
+  }
+
+  // ===== S3-F3 attempt 持久化 =====
+  // 记录一次 attempt 历史（离开 attempt 阶段时调用）：含暂停时长，peekCount 恒 0（偷看属默写阶段）
+  const recordAttempt = (outcome: 'pass' | 'fail' | 'timeout') => {
+    const entry: AttemptHistory = {
+      ts: new Date().toISOString(),
+      phase: 'attempt',
+      outcome,
+      elapsedMin: Math.round((timer.elapsedSec / 60) * 10) / 10,
+      pausedMin: Math.round((timer.pausedSec / 60) * 10) / 10,
+      peekCount: 0,
+      lang,
+    }
+    updateProblem(problem.id, { history: [...problem.history, entry] })
+  }
+
+  // 自解通过：status=self-solved，调 S6 排期（首间 3 天，srsLevel=0），记一次通过历史
+  const selfSolved = () => {
+    if (!allPass) return
+    const sched = passSchedule(problem.srsLevel, settings.intervalsDays, todayStr())
+    recordAttempt('pass')
+    updateProblem(problem.id, {
+      status: 'self-solved',
+      srsLevel: sched.srsLevel,
+      ...(sched.nextReviewAt ? { nextReviewAt: sched.nextReviewAt } : {}),
+      lastLang: lang,
+    })
+    setDoneKind('self-solved')
+    setPhase('done')
+  }
+
+  // 看题解：本地无题解 → V1.0 兜底提示，停在 attempt；有则记一次历史后进 solution 态。
+  // outcome：已超时才来看题解 → 'timeout'（卡到点放弃）；未超时主动看 → 'fail'。
+  // 超时不锁界面、用户可能继续写后自解，那条路径走 selfSolved 记 'pass'，不在此处。
+  const seeSolution = () => {
+    if (!problem.solution) {
+      setNotice('暂无题解，请手动粘贴（V1.1 起 AI 可生成）')
+      return
+    }
+    setNotice(null)
+    setTimeUpMsg(null)
+    recordAttempt(timer.overtime ? 'timeout' : 'fail')
+    setPhase('solution')
+  }
+
+  // 只看题解不刷（Hard 等）：status=skipped，不进默写、不排期
+  // 显式清 nextReviewAt：从 pending-review 等带排期的状态转入 skipped 时，残留的复习日期必须抹掉
+  const skipProblem = () => {
+    updateProblem(problem.id, { status: 'skipped', lastLang: lang, nextReviewAt: undefined })
+    setDoneKind('skipped')
     setPhase('done')
   }
 
@@ -262,17 +329,21 @@ export default function ProblemView() {
     setImportMsg(`导入 ${imported} 题${skipped ? `，跳过 ${skipped} 个未匹配` : ''}${hitCurrent ? '（含当前题，已回填）' : ''}`)
   }
 
-  const timerProps = {
-    minutes: TIME_LIMIT[problem.difficulty],
-    resetKey: phase,
-    label: phase === 'reproduce' ? '默写限时' : '尝试限时',
-    onTimeout: () =>
-      setTimeUpMsg(
-        phase === 'reproduce'
-          ? '默写时间到 -- 尽力就好，写不出就记一次失败，3 天后再战'
-          : '时间到 -- 卡住就停，不死磕是纪律，看看题解？',
-      ),
-  }
+  // 计时状态提升到 hook（S3-F3）：主视图与专注模式共享，避免双实例不同步；
+  // elapsedSec/pausedSec 用于写 history。resetKey=phase：切阶段重置。
+  // 时长来自 settings.timeLimitMin（spec「可配置」）：db.json 改了即生效；旧 db 缺字段时兜底 25
+  const diffKey = problem.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard'
+  const limitMin = settings.timeLimitMin?.[diffKey] ?? 25
+  const timer = useAttemptTimer(limitMin, phase, () =>
+    setTimeUpMsg(
+      phase === 'reproduce'
+        ? '默写时间到 -- 尽力就好，写不出就记一次失败，3 天后再战'
+        : '时间到 -- 卡住就停，不死磕是纪律，看看题解？',
+    ),
+  )
+  // 重置计时同时清超时文案（避免重置后旧「时间到」残留、firedRef 复位后重复触发）
+  const resetTimer = () => { timer.reset(); setTimeUpMsg(null) }
+  const timerLabel = phase === 'reproduce' ? '默写限时' : '尝试限时'
 
   const md = (text: string) => (
     <ReactMarkdown
@@ -324,7 +395,16 @@ export default function ProblemView() {
               <PenLine className="size-3.5" /> 编辑题目
             </Button>
           )}
-          {inFlow && <Timer {...timerProps} />}
+          {inFlow && (
+            <Timer
+              remainSec={timer.remainSec}
+              paused={timer.paused}
+              overtime={timer.overtime}
+              label={timerLabel}
+              onTogglePause={timer.togglePause}
+              onReset={resetTimer}
+            />
+          )}
         </div>
       </div>
 
@@ -631,6 +711,11 @@ export default function ProblemView() {
             {/* 阶段操作区 */}
             {phase === 'attempt' && (
               <div className="space-y-3">
+                {notice && (
+                  <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                    {notice}
+                  </div>
+                )}
                 {hintOpen && (
                   <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 p-3">
                     <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -659,10 +744,14 @@ export default function ProblemView() {
                       收起提示
                     </Button>
                   )}
-                  <Button variant="destructive" onClick={() => { setPhase('solution'); setTimeUpMsg(null) }}>
+                  <Button
+                    variant="destructive"
+                    onClick={seeSolution}
+                    className={cn(timer.overtime && 'ring-2 ring-amber-400 animate-pulse')}
+                  >
                     <BookOpen className="size-4" /> 想不出，看题解
                   </Button>
-                  <Button variant="outline" disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
+                  <Button variant="outline" onClick={selfSolved} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
                     <CheckCircle2 className="size-4" /> 自解通过
                   </Button>
                 </div>
@@ -706,18 +795,47 @@ export default function ProblemView() {
           <p className="mt-2 text-center text-xs text-muted-foreground">
             能默写出来，才算会 -- 现在代码会被清空、只留函数签名
           </p>
+          <div className="mt-3 text-center">
+            <Button variant="ghost" size="sm" onClick={skipProblem}>
+              只看题解不刷（跳过，不进默写）
+            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Hard 太难、时间不够 -- 跳过不丢人，也不排期复习
+            </p>
+          </div>
         </div>
       )}
 
       {/* ===== 完成态 ===== */}
       {phase === 'done' && (
         <div className="mx-auto max-w-md space-y-4 rounded-xl border bg-card p-8 text-center">
-          {noteOutcome === 'pass' ? (
+          {doneKind === 'self-solved' ? (
+            <>
+              <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
+              <h2 className="text-xl font-bold">自解通过，没看题解就拿下</h2>
+              <p className="text-sm text-muted-foreground">
+                已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习
+              </p>
+              <Button asChild variant="outline" className="mx-auto">
+                <a href={leetcodeUrl(problem)} target="_blank" rel="noreferrer">
+                  去 LeetCode 提交 <ExternalLink className="size-3.5" />
+                </a>
+              </Button>
+            </>
+          ) : doneKind === 'skipped' ? (
+            <>
+              <BookOpen className="mx-auto size-14 text-muted-foreground" />
+              <h2 className="text-xl font-bold">已跳过，只看题解不刷</h2>
+              <p className="text-sm text-muted-foreground">
+                没关系 -- 这题不排期复习，想刷时随时回题单再来
+              </p>
+            </>
+          ) : noteOutcome === 'pass' ? (
             <>
               <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
               <h2 className="text-xl font-bold">默写通过，这题才算真的会了</h2>
               <p className="text-sm text-muted-foreground">
-                已排期 <strong className="text-foreground">3 天后（2026-08-21）</strong> 复习，下次直接默写
+                已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习，下次直接默写
               </p>
             </>
           ) : (
@@ -759,13 +877,20 @@ export default function ProblemView() {
             <CodeEditor value={code} onChange={setCode} lang={lang} height="100%" />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Timer {...timerProps} />
+            <Timer
+              remainSec={timer.remainSec}
+              paused={timer.paused}
+              overtime={timer.overtime}
+              label={timerLabel}
+              onTogglePause={timer.togglePause}
+              onReset={resetTimer}
+            />
             <div className="ml-auto flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={runCases} disabled={!canRun || running}>
                 <Play className="size-3.5" /> 运行用例
               </Button>
               {phase === 'attempt' ? (
-                <Button size="sm" variant="destructive" onClick={() => { setZen(false); setPhase('solution') }}>
+                <Button size="sm" variant="destructive" className={cn(timer.overtime && 'ring-2 ring-amber-400 animate-pulse')} onClick={() => { setZen(false); seeSolution() }}>
                   看题解
                 </Button>
               ) : (
