@@ -120,6 +120,53 @@ function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
+/**
+ * S0-judge：把 vendored Pyodide 作为静态文件服务在 /pyodide/。
+ *
+ * 为什么不用 public/ 默认静态：Vite dev 禁止把 public 目录里的文件当 ESM 模块 import
+ * （public 守卫在 transform 管线里拦截，@vite-ignore / 变量说明符都躲不过运行期那一关）。
+ * 这里在 Vite transform 之前直接把 /pyodide/* 以正确 Content-Type 吐回去，请求不落
+ * 到 public 守卫；pyodide.worker.ts 里的 `import('/pyodide/pyodide.mjs')` 即可工作。
+ * 文件实体仍在 public/pyodide/（构建时 Vite 自动拷到 dist/pyodide/），此处只接管 dev 服务。
+ */
+const PYODIDE_TYPES: Record<string, string> = {
+  '.mjs': 'text/javascript',
+  '.js': 'text/javascript',
+  '.wasm': 'application/wasm',
+  '.zip': 'application/zip',
+  '.json': 'application/json',
+}
+
+export function pyodideStatic(): Plugin {
+  return {
+    name: 'moxie-pyodide-static',
+    configureServer(server) {
+      const pyodideDir = path.resolve(server.config.root, 'public/pyodide')
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url ?? ''
+        if (!url.startsWith('/pyodide/')) return next()
+        const rel = decodeURIComponent(url.slice('/pyodide/'.length).split('?')[0]!)
+        // 防路径穿越：只允许简单文件名
+        if (rel.includes('..') || path.isAbsolute(rel)) return next()
+        const file = path.join(pyodideDir, rel)
+        try {
+          const data = await fs.readFile(file)
+          const ext = path.extname(file)
+          res.setHeader('Content-Type', PYODIDE_TYPES[ext] ?? 'application/octet-stream')
+          // 本 handler 在全局设头中间件之前接管了 /pyodide/，这里自行带上全套隔离头，
+          // 不依赖插件注册顺序（COOP/COEP 文档级生效，CORP 供 worker 内子资源加载）
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+          res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
+          res.end(data)
+        } catch {
+          next()
+        }
+      })
+    },
+  }
+}
+
 export function dbApi(): Plugin {
   return {
     name: 'moxie-db',
