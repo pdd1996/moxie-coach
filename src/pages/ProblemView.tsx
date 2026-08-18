@@ -14,13 +14,11 @@ import { Separator } from '@/components/ui/separator'
 import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
 import { useProblem } from '@/lib/store'
-import { STATUS_LABEL, leetcodeUrl } from '@/lib/types'
+import { STATUS_LABEL, leetcodeUrl, type Lang } from '@/lib/types'
+import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
 import { cn } from '@/lib/utils'
 
 type Phase = 'paste' | 'attempt' | 'solution' | 'reproduce' | 'done'
-type Lang = 'python' | 'javascript'
-
-interface RunResult { pass: boolean; actual: string }
 
 const TIME_LIMIT: Record<string, number> = { Easy: 15, Medium: 25, Hard: 25 }
 
@@ -36,10 +34,10 @@ export default function ProblemView() {
   const problem = useProblem(Number(id))
 
   const [phase, setPhase] = useState<Phase>(() => (problem?.statement ? 'attempt' : 'paste'))
-  const [lang, setLang] = useState<Lang>('python')
-  const [code, setCode] = useState(problem?.skeleton?.python ?? '')
+  const [lang, setLang] = useState<Lang>(problem?.lastLang ?? 'python')
+  const [code, setCode] = useState(problem?.skeleton?.[problem?.lastLang ?? 'python'] ?? '')
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<Record<string, RunResult> | null>(null)
+  const [results, setResults] = useState<Record<string, CaseResult> | null>(null)
   const [hintLevel, setHintLevel] = useState(0)
   const [hintOpen, setHintOpen] = useState(false)
   const [peekCount, setPeekCount] = useState(0)
@@ -71,28 +69,49 @@ export default function ProblemView() {
   const switchLang = (l: Lang) => {
     setLang(l)
     setCode((prev) => (phase === 'reproduce' ? problem.skeleton?.[l] ?? '' : prev))
+    setResults(null)
   }
 
-  // 原型演示：模拟运行用例
-  // 尝试阶段故意让第 3 条失败（展示失败 UI 和「自解通过」的禁用逻辑）
-  // 默写阶段全部通过（让演示能走通「默写通过 -> 笔记 -> 完成态」成功路径）
-  const runCases = () => {
+  // 当前语言的判题入口；无 entry（未贴题 / 多线程）则禁用运行
+  const entry = problem.entry?.[lang]
+  const canRun = !!entry && problem.testCases.length > 0
+
+  // 真判题（S0-judge）：Python 走 Pyodide、JS 走 Web Worker，主线程宽松比对。
+  const runCases = async () => {
+    if (!entry) return
     setRunning(true)
     setResults(null)
-    setTimeout(() => {
-      const failSome = phase === 'attempt'
+    try {
+      const res = await runJudgeCases({
+        lang,
+        code,
+        entry,
+        testCases: problem.testCases,
+        onProgress: (_i, r) =>
+          setResults((prev) => ({ ...prev, [r.label]: r })),
+      })
+      setResults(Object.fromEntries(res.map((r) => [r.label, r])))
+    } catch (err) {
+      // 执行器加载/启动失败：整批标记错误，UI 仍可用
+      console.error('[judge] runCases 失败：', err)
       setResults(
         Object.fromEntries(
-          problem.testCases.map((tc, i) => [
+          problem.testCases.map((tc) => [
             tc.label,
-            failSome && i === 2
-              ? { pass: false, actual: '[1,2,2,3,5,5]' }
-              : { pass: true, actual: tc.expected },
+            {
+              label: tc.label,
+              status: 'error' as const,
+              pass: false,
+              actual: `判题器错误：${(err as Error)?.message ?? err}`,
+              expected: tc.expected,
+              elapsedMs: 0,
+            } satisfies CaseResult,
           ]),
         ),
       )
+    } finally {
       setRunning(false)
-    }, 800)
+    }
   }
 
   const allPass =
@@ -295,7 +314,12 @@ export default function ProblemView() {
               <div className="rounded-xl border">
                 <div className="flex items-center justify-between border-b px-3 py-2">
                   <span className="text-sm font-bold">测试用例（{problem.testCases.length}）</span>
-                  <Button size="sm" onClick={runCases} disabled={running}>
+                  <Button
+                    size="sm"
+                    onClick={runCases}
+                    disabled={!canRun || running}
+                    title={!entry ? '该语言未识别判题入口（未贴题 / 多线程题）' : ''}
+                  >
                     <Play className="size-3.5" /> {running ? '运行中…' : '运行用例'}
                   </Button>
                 </div>
@@ -307,13 +331,17 @@ export default function ProblemView() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium">{tc.label}</span>
                           {r ? (
-                            r.pass ? (
+                            r.status === 'pass' ? (
                               <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                                <CheckCircle2 className="size-3.5" /> 通过
+                                <CheckCircle2 className="size-3.5" /> 通过 · {Math.round(r.elapsedMs)}ms
+                              </span>
+                            ) : r.status === 'timeout' ? (
+                              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                                <XCircle className="size-3.5" /> 超时
                               </span>
                             ) : (
                               <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
-                                <XCircle className="size-3.5" /> 失败
+                                <XCircle className="size-3.5" /> {r.status === 'error' ? '错误' : '失败'}
                               </span>
                             )
                           ) : (
@@ -327,8 +355,16 @@ export default function ProblemView() {
                           {r && (
                             <>
                               <br />
-                              <span className={r.pass ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>
-                                实际 {r.actual}
+                              <span
+                                className={cn(
+                                  r.status === 'pass'
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : r.status === 'timeout'
+                                      ? 'text-amber-600 dark:text-amber-400'
+                                      : 'text-red-600 dark:text-red-400',
+                                )}
+                              >
+                                {r.status === 'pass' ? '实际' : r.status === 'timeout' ? '结果' : r.status === 'error' ? '错误' : '实际'} {r.actual}
                               </span>
                             </>
                           )}
@@ -338,7 +374,7 @@ export default function ProblemView() {
                   })}
                 </div>
                 <p className="px-3 py-1.5 text-[11px] text-muted-foreground">
-                  原型演示：尝试阶段第 3 条用例故意失败；默写阶段全部通过（模拟数据）
+                  真判题：Python 走本地 Pyodide、JS 走 Web Worker，单条 5s 超时
                 </p>
               </div>
             )}
@@ -476,7 +512,7 @@ export default function ProblemView() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Timer {...timerProps} />
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={runCases} disabled={running}>
+              <Button size="sm" variant="outline" onClick={runCases} disabled={!canRun || running}>
                 <Play className="size-3.5" /> 运行用例
               </Button>
               {phase === 'attempt' ? (
