@@ -24,7 +24,7 @@ const DONE_STATUSES = new Set(['self-solved', 'learned', 'reviewing', 'mastered'
 const isDone = (p: Problem) => DONE_STATUSES.has(p.status)
 
 /** 待复习的状态（spec：learned / pending-review / self-solved / reviewing） */
-const REVIEWABLE_STATUSES = new Set(['learned', 'pending-review', 'self-solved', 'reviewing'])
+export const REVIEWABLE_STATUSES = new Set(['learned', 'pending-review', 'self-solved', 'reviewing'])
 
 /**
  * 今日复习队列：nextReviewAt <= today 且状态可复习；按逾期天数降序

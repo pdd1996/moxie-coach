@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -18,7 +18,7 @@ import { useProblem, useProblems, useUpdateProblem, useSettings } from '@/lib/st
 import { STATUS_LABEL, leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
 import { parseEntry } from '@/lib/entry'
 import { parseMdFile, parseExamples } from '@/lib/import'
-import { passSchedule, todayStr } from '@/lib/srs'
+import { failSchedule, passSchedule, REVIEWABLE_STATUSES, todayStr } from '@/lib/srs'
 import { useAttemptTimer } from '@/lib/useAttemptTimer'
 import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
 import { cn } from '@/lib/utils'
@@ -41,7 +41,29 @@ export default function ProblemView() {
   const allProblems = useProblems()
   const validIds = useMemo(() => new Set(allProblems.map((p) => p.id)), [allProblems])
 
-  const [phase, setPhase] = useState<Phase>(() => (problem?.statement ? 'attempt' : 'paste'))
+  // 到期复习直进默写（S4-F4）：已贴题 + nextReviewAt<=今天 + 状态可复习 → 直接 reproduce，
+  // 不重看题解。首次默写则从 solution 态进（enterReproduce），history phase='reproduce'；
+  // 复习默写 history phase='review'（A3 区分、F8 据此统计）。
+  const isReviewEntry =
+    !!problem?.statement &&
+    !!problem?.nextReviewAt &&
+    problem.nextReviewAt <= todayStr() &&
+    REVIEWABLE_STATUSES.has(problem.status)
+  const [phase, setPhase] = useState<Phase>(() =>
+    isReviewEntry ? 'reproduce' : (problem?.statement ? 'attempt' : 'paste'),
+  )
+  // 本次默写记进 history 的 phase：复习入口='review'，其余='reproduce'（首次默写）
+  const [reproducePhaseTag, setReproducePhaseTag] = useState<'reproduce' | 'review'>(() =>
+    isReviewEntry ? 'review' : 'reproduce',
+  )
+  // 本次默写是否已结算：笔记弹窗为必经步，任何途径回到 reproduce 都不得二次结算
+  const settledRef = useRef(false)
+  // 进入时是否为自解复习（mount 快照）：复习中 effect 对 self-solved 不覆盖（见下），
+  // 故暂停/恢复后 status 仍是 self-solved，快照始终为真 → 通过保持 self-solved；
+  // 一旦失败 status 被改成 pending-review，下次进入快照为假 → 通过变 learned（失败即降级，不再恢复）。
+  const [entryWasSelfSolved, setEntryWasSelfSolved] = useState(() =>
+    isReviewEntry && problem?.status === 'self-solved',
+  )
   // 默认语言：优先上次用的，其次用户设置 defaultLang，最后兜底 python
   // （types 注释：defaultLang = 新题/无 lastLang 时的默认语言；原先硬编码 python 会无视设置）
   const [lang, setLang] = useState<Lang>(problem?.lastLang ?? settings.defaultLang ?? 'python')
@@ -97,6 +119,23 @@ export default function ProblemView() {
   useEffect(() => {
     if (problem && phase === 'attempt' && problem.status === 'new') {
       updateProblem(problem.id, { status: 'in-progress' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
+  // 复习入口进默写置 reviewing（S4-F4）：到期复习直进 reproduce 时置，标识「正在复习这题」。
+  // 关键：self-solved 不覆盖——否则持久化后暂停/恢复会丢失自解标记，结算降级成 learned。
+  // 自解题复习时保持 self-solved（badge 显示自解，仍在复习队列里），通过结算再判定升/降级。
+  // 失败由 onReproduceFail 改成 pending-review，故「失败即降级」靠 status 离开 self-solved 实现。
+  useEffect(() => {
+    if (
+      problem &&
+      phase === 'reproduce' &&
+      isReviewEntry &&
+      problem.status !== 'reviewing' &&
+      problem.status !== 'self-solved'
+    ) {
+      updateProblem(problem.id, { status: 'reviewing' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
@@ -162,8 +201,19 @@ export default function ProblemView() {
   const allPass =
     results && problem.testCases.every((tc) => results[tc.label]?.pass)
 
+  // done 屏失败分支用：距下次复习的天数（从 nextReviewAt 推算，与 intervalsDays 解耦，
+  // 改设置后展示仍与实际排期一致）。失败当下 = intervalsDays[0]，跨天看 done 也准确。
+  const reviewInDays = problem.nextReviewAt
+    ? Math.max(1, Math.round(
+        (new Date(problem.nextReviewAt + 'T00:00:00').getTime() - new Date(todayStr() + 'T00:00:00').getTime()) / 86_400_000,
+      ))
+    : null
+
   const enterReproduce = () => {
     setPhase('reproduce')
+    setReproducePhaseTag('reproduce') // 从 solution 态进 = 首次默写
+    setEntryWasSelfSolved(false) // 本轮看过题解，通过算 learned 而非保持 self-solved
+    settledRef.current = false // 新一轮默写，结算守卫复位
     setCode(problem.skeleton?.[lang] ?? '')
     setResults(null)
     setPeekCount(0)
@@ -175,10 +225,69 @@ export default function ProblemView() {
     setNoteOpen(true)
   }
 
+  // 保存一句话笔记（S5）：非空才写库（trim 后），转 done。结算已在通过/失败时完成。
   const saveNote = () => {
+    const trimmed = note.trim()
+    if (trimmed) updateProblem(problem.id, { note: trimmed })
     setNoteOpen(false)
     setDoneKind('reproduce')
     setPhase('done')
+  }
+
+  // 跳过笔记（S5-F5）：不写库（保留已有 note 不擦除），直接转 done
+  const skipNote = () => {
+    setNoteOpen(false)
+    setDoneKind('reproduce')
+    setPhase('done')
+  }
+
+  // ===== S4-F4 默写结算 =====
+  // 记一次默写历史：phase 用 reproducePhaseTag（首次=reproduce / 复习=review），带本次偷看次数
+  const recordReproduce = (outcome: 'pass' | 'fail') => {
+    const entry: AttemptHistory = {
+      ts: new Date().toISOString(),
+      phase: reproducePhaseTag,
+      outcome,
+      elapsedMin: Math.round((timer.elapsedSec / 60) * 10) / 10,
+      pausedMin: Math.round((timer.pausedSec / 60) * 10) / 10,
+      peekCount,
+      lang,
+    }
+    updateProblem(problem.id, { history: [...problem.history, entry] })
+  }
+
+  // 默写通过（S4-F4）：首次→learned，自解复习通过→保持 self-solved，达上限→mastered；调 S6 排期
+  const onReproducePass = () => {
+    if (!allPass || settledRef.current) return
+    settledRef.current = true
+    setZen(false) // 从专注模式结算：退出 zen，让笔记弹窗落在普通层而非叠在全屏编辑器上
+    const sched = passSchedule(problem.srsLevel, settings.intervalsDays, todayStr())
+    recordReproduce('pass')
+    const status = sched.mastered
+      ? 'mastered'
+      : entryWasSelfSolved ? 'self-solved' : 'learned'
+    updateProblem(problem.id, {
+      status,
+      srsLevel: sched.srsLevel,
+      ...(sched.nextReviewAt ? { nextReviewAt: sched.nextReviewAt } : {}),
+      lastLang: lang,
+    })
+    openNote('pass')
+  }
+
+  // 默写失败（S4-F4）：pending-review + srsLevel 重置 0 + 排 intervalsDays[0] 天（默认 3）
+  const onReproduceFail = () => {
+    if (settledRef.current) return
+    settledRef.current = true
+    const sched = failSchedule(settings.intervalsDays, todayStr())
+    recordReproduce('fail')
+    updateProblem(problem.id, {
+      status: 'pending-review',
+      srsLevel: sched.srsLevel,
+      nextReviewAt: sched.nextReviewAt,
+      lastLang: lang,
+    })
+    openNote('fail')
   }
 
   // ===== S3-F3 attempt 持久化 =====
@@ -196,13 +305,13 @@ export default function ProblemView() {
     updateProblem(problem.id, { history: [...problem.history, entry] })
   }
 
-  // 自解通过：status=self-solved，调 S6 排期（首间 3 天，srsLevel=0），记一次通过历史
+  // 自解通过：status=self-solved，调 S6 排期；达间隔上限 → mastered（与 onReproducePass 一致）
   const selfSolved = () => {
     if (!allPass) return
     const sched = passSchedule(problem.srsLevel, settings.intervalsDays, todayStr())
     recordAttempt('pass')
     updateProblem(problem.id, {
-      status: 'self-solved',
+      status: sched.mastered ? 'mastered' : 'self-solved',
       srsLevel: sched.srsLevel,
       ...(sched.nextReviewAt ? { nextReviewAt: sched.nextReviewAt } : {}),
       lastLang: lang,
@@ -763,11 +872,16 @@ export default function ProblemView() {
 
             {phase === 'reproduce' && (
               <div className="space-y-3">
+                {problem.testCases.length === 0 && (
+                  <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                    此题没有测试用例 ——「默写通过」需用例验证。可先「失败」一次，到完成页补用例后重判，避免空转。
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => openNote('pass')} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
+                  <Button onClick={onReproducePass} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
                     <CheckCircle2 className="size-4" /> 默写通过
                   </Button>
-                  <Button variant="destructive" onClick={() => openNote('fail')}>
+                  <Button variant="destructive" onClick={onReproduceFail}>
                     <XCircle className="size-4" /> 反复写不出，默写失败
                   </Button>
                 </div>
@@ -813,9 +927,15 @@ export default function ProblemView() {
             <>
               <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
               <h2 className="text-xl font-bold">自解通过，没看题解就拿下</h2>
-              <p className="text-sm text-muted-foreground">
-                已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习
-              </p>
+              {problem.status === 'mastered' ? (
+                <p className="text-sm text-muted-foreground">
+                  间隔走完，已 <strong className="text-foreground">掌握</strong> —— 不再排期复习
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习
+                </p>
+              )}
               <Button asChild variant="outline" className="mx-auto">
                 <a href={leetcodeUrl(problem)} target="_blank" rel="noreferrer">
                   去 LeetCode 提交 <ExternalLink className="size-3.5" />
@@ -834,22 +954,28 @@ export default function ProblemView() {
             <>
               <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
               <h2 className="text-xl font-bold">默写通过，这题才算真的会了</h2>
-              <p className="text-sm text-muted-foreground">
-                已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习，下次直接默写
-              </p>
+              {problem.status === 'mastered' ? (
+                <p className="text-sm text-muted-foreground">
+                  间隔走完，已 <strong className="text-foreground">掌握</strong> —— 不再排期复习
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  已排期 <strong className="text-foreground">{problem.nextReviewAt}</strong> 复习，下次直接默写
+                </p>
+              )}
             </>
           ) : (
             <>
               <XCircle className="mx-auto size-14 text-amber-500" />
-              <h2 className="text-xl font-bold">记下了，3 天后再战</h2>
+              <h2 className="text-xl font-bold">记下了，{reviewInDays ?? 3} 天后再战</h2>
               <p className="text-sm text-muted-foreground">
-                默写失败很正常 -- 它会在 3 天后回到复习队列
+                默写失败很正常 -- 它会在 {reviewInDays ?? 3} 天后回到复习队列
               </p>
             </>
           )}
-          {note && (
+          {note.trim() && (
             <div className="rounded-lg border-dashed border bg-muted/40 p-3 text-sm">
-              <span className="font-medium">一句话笔记：</span>{note}
+              <span className="font-medium">一句话笔记：</span>{note.trim()}
             </div>
           )}
           <div className="flex justify-center gap-2">
@@ -894,7 +1020,7 @@ export default function ProblemView() {
                   看题解
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => { setZen(false); openNote('pass') }} disabled={!allPass}>
+                <Button size="sm" onClick={() => { setZen(false); onReproducePass() }} disabled={!allPass}>
                   默写通过
                 </Button>
               )}
@@ -931,9 +1057,15 @@ export default function ProblemView() {
         </DialogContent>
       </Dialog>
 
-      {/* 一句话笔记弹窗 */}
+      {/* 一句话笔记弹窗（S5）：结算后的必经步——只能经「保存/先跳过」退出，
+          屏蔽 X/遮罩/Esc，防止回到 reproduce 后二次结算 */}
       <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg"
+          showCloseButton={false}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>什么时候用这个套路？</DialogTitle>
           </DialogHeader>
@@ -947,7 +1079,7 @@ export default function ProblemView() {
             placeholder={`例：看到「${problem.signal ?? '…'}」就用 ${problem.pattern}`}
           />
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setNoteOpen(false)}>先跳过</Button>
+            <Button variant="ghost" onClick={skipNote}>先跳过</Button>
             <Button onClick={saveNote}>保存笔记</Button>
           </DialogFooter>
         </DialogContent>
