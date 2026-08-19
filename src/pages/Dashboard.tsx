@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Flame, BookOpenCheck, PenLine, Lightbulb } from 'lucide-react'
+import { ArrowRight, Flame, BookOpenCheck, PenLine, Lightbulb, StickyNote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,6 +74,14 @@ export default function Dashboard() {
                     <span className="font-mono text-sm text-muted-foreground">#{p.id}</span>
                     <span className="truncate text-sm font-medium">{p.title}</span>
                     <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">{p.pattern}</Badge>
+                    {p.note && (
+                      <StickyNote
+                        className="size-3.5 shrink-0 text-amber-500"
+                        aria-label="有笔记"
+                      >
+                        <title>{p.note}</title>
+                      </StickyNote>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {days > 0 && <Badge variant="destructive">逾期 {days} 天</Badge>}

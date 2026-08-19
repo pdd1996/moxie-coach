@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, ExternalLink } from 'lucide-react'
+import { Search, ExternalLink, StickyNote } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +38,14 @@ function ProblemRow({ p }: { p: Problem }) {
         </Link>
         {p.optional && (
           <span className="ml-2 align-middle text-[10px] text-muted-foreground/80">选做</span>
+        )}
+        {p.note && (
+          <StickyNote
+            className="ml-2 inline size-3.5 align-middle text-amber-500"
+            aria-label="有笔记"
+          >
+            <title>{p.note}</title>
+          </StickyNote>
         )}
       </TableCell>
       <TableCell className={cn('text-xs font-medium', DIFF_BADGE[p.difficulty])}>{p.difficulty}</TableCell>
