@@ -35,3 +35,4 @@ scripts/smoke-A.png
 scripts/*.out
 
 .zcode
+gui-test-screenshots
