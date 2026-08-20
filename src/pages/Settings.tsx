@@ -77,10 +77,9 @@ export default function Settings() {
   const patchTimeLimit = (k: 'easy' | 'medium' | 'hard', v: number) =>
     updateSettings({ timeLimitMin: { ...settings.timeLimitMin, [k]: v } })
 
-  // —— 复习间隔 ——
-  const patchInterval = (i: number, v: number) => {
-    const next = settings.intervalsDays.map((d, idx) => (idx === i ? v : d))
-    updateSettings({ intervalsDays: next })
+  // —— 复习间隔(三等分:改任意一个,三者同步成同一个值)——
+  const patchInterval = (_i: number, v: number) => {
+    updateSettings({ intervalsDays: settings.intervalsDays.map(() => v) })
   }
 
   // —— 恢复默认（按卡片局部恢复，不动 AI key） ——
