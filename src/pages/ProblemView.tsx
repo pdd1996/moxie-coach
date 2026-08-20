@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
-  ArrowLeft, BookOpen, CheckCircle2, Eye, EyeOff, ExternalLink,
+  ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
   Lightbulb, Maximize2, Minimize2, PenLine, Play, RotateCcw, Sparkles, Star, Upload, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +31,78 @@ const DEMO_HINTS = [
   '观察你的动作：两只手各指一个数组，每次比较两边的数、放下较小的、那边的手往后移一格。这就是双指针。',
   '陷阱来了：从前往后填会覆盖 nums1 还没用的数据。问自己：nums1 里哪些格子绝对不会被碰？-- 尾巴那 n 个 0。反过来，从后往前填。',
 ]
+
+/** 贴题面板分节标题：编号徽章 + 标题（必填标 *）+ 说明 */
+function PasteSection({ index, title, required, desc }: {
+  index: number
+  title: string
+  required?: boolean
+  desc?: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
+        {index}
+      </span>
+      <span className="text-sm font-medium">
+        {title}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </span>
+      {desc && <span className="text-xs text-muted-foreground">{desc}</span>}
+    </div>
+  )
+}
+
+/**
+ * 贴题面板折叠分节：整行按钮 + 编号徽章 + 「可选/高级」标记，
+ * 右侧状态提示（statusOk 用 emerald）让用户不展开也能看到是否已填，展开后 desc 补充说明。
+ */
+function CollapseSection({ index, label, badge, status, statusOk, desc, open, onToggle, children }: {
+  index: number
+  label: string
+  badge?: string
+  status?: string
+  statusOk?: boolean
+  desc?: string
+  open: boolean
+  onToggle: () => void
+  children?: ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="-mx-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent"
+        onClick={onToggle}
+      >
+        <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
+          {index}
+        </span>
+        <span className={cn('text-sm font-medium', open ? 'text-foreground' : 'text-muted-foreground')}>
+          {label}
+        </span>
+        {badge && (
+          <span className="rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">{badge}</span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {status && (
+            <span className={cn('text-xs', statusOk
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-muted-foreground')}>
+              {status}
+            </span>
+          )}
+          <ChevronDown
+            className={cn('size-4 shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')}
+          />
+        </span>
+      </button>
+      {open && desc && <p className="px-2 text-xs text-muted-foreground">{desc}</p>}
+      {open && children}
+    </div>
+  )
+}
 
 export default function ProblemView() {
   const { id } = useParams()
@@ -86,6 +158,9 @@ export default function ProblemView() {
   const [pasteSolution, setPasteSolution] = useState(problem?.solution ?? '')
   const [pasteCases, setPasteCases] = useState<TestCase[]>(problem?.testCases ?? [])
   const [importMsg, setImportMsg] = useState<string | null>(null)
+  // 题面必填校验：空题面点「贴好了」标红聚焦，输入即清除
+  const [pasteError, setPasteError] = useState(false)
+  const statementRef = useRef<HTMLTextAreaElement>(null)
   // attempt 阶段状态（S3-F3）
   const [notice, setNotice] = useState<string | null>(null) // 无题解兜底等内联提示
   const [doneKind, setDoneKind] = useState<'reproduce' | 'self-solved' | 'skipped'>('reproduce') // 完成态分支
@@ -347,6 +422,12 @@ export default function ProblemView() {
   // 连同题面/模板/题解/用例一次性落库，然后进尝试阶段。
   const savePaste = () => {
     if (!problem) return
+    // 题面是唯一必填项：空则标红聚焦，不落库
+    if (!pasteStatement.trim()) {
+      setPasteError(true)
+      statementRef.current?.focus()
+      return
+    }
     // 首次贴题（此前无题面）才把编辑器预载为模板签名；从刷题阶段回来补用例则保留用户已写代码
     const firstPaste = !problem.statement
     const skeleton = { python: pasteSkeletonPy, javascript: pasteSkeletonJs }
@@ -543,25 +624,38 @@ export default function ProblemView() {
 
       {/* ===== 贴题面板（S2-F2）===== */}
       {phase === 'paste' && (
-        <div className="mx-auto max-w-2xl space-y-4 rounded-xl border bg-card p-6">
-          <div>
-            <h2 className="text-lg font-bold">首次打开，先贴题 📋</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              把 LeetCode 题目描述（含示例）整段粘进来，用例会自动识别；再贴代码模板就能开始。
-            </p>
+        <div className="mx-auto max-w-2xl space-y-5 rounded-xl border bg-card p-5 md:p-6">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <ClipboardList className="size-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-bold">首次打开，先贴题</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                把 LeetCode 题目描述（含示例）整段粘进来，用例会自动识别；再贴代码模板就能开始。
+              </p>
+            </div>
           </div>
 
-          {/* ① 题面（唯一必填）—— 用例自动从「输入：/输出：」示例解析 */}
-          <div className="space-y-1.5">
-            <div className="text-sm font-medium">① 题面（整段复制 LeetCode 描述，含示例）</div>
+          {/* ① 题面（唯一必填）-- 用例自动从「输入：/输出：」示例解析 */}
+          <div className="space-y-2">
+            <PasteSection index={1} title="题面" required desc="整段复制 LeetCode 描述，含示例" />
             <Textarea
+              ref={statementRef}
               value={pasteStatement}
-              onChange={(e) => setPasteStatement(e.target.value)}
+              onChange={(e) => {
+                setPasteStatement(e.target.value)
+                if (pasteError) setPasteError(false)
+              }}
               placeholder={'粘贴 LeetCode 题目描述 + 示例…\n用例会从「输入：…/输出：…」自动识别，无需手填。'}
               rows={8}
+              aria-invalid={pasteError}
             />
+            {pasteError && (
+              <p className="text-xs text-destructive">题面是必填的：把 LeetCode 描述（含示例）整段粘进来</p>
+            )}
             {pasteCases.length > 0 ? (
-              <div className="rounded-lg bg-muted/40 p-2 text-xs">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="mr-1 inline size-3.5" />
@@ -571,7 +665,7 @@ export default function ProblemView() {
                     重新解析
                   </Button>
                 </div>
-                <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground">
+                <ul className="mt-1.5 space-y-0.5 font-mono text-muted-foreground">
                   {pasteCases.map((tc) => (
                     <li key={tc.label} className="truncate">
                       {tc.label}：输入 {tc.args.join(', ')} → 期望 {tc.expected}
@@ -589,10 +683,12 @@ export default function ProblemView() {
           </div>
 
           {/* ② 代码模板（默认只显示用户默认语言，另一种折叠） */}
-          <div className="space-y-1.5">
-            <div className="text-sm font-medium">
-              ② 代码模板（{primaryLang === 'python' ? 'Python' : 'JavaScript'}）
-            </div>
+          <div className="space-y-2">
+            <PasteSection
+              index={2}
+              title={`代码模板（${primaryLang === 'python' ? 'Python' : 'JavaScript'}）`}
+              desc="从 LeetCode 代码区整段复制"
+            />
             <Textarea
               value={primarySkeleton}
               onChange={(e) => setPrimarySkeleton(e.target.value)}
@@ -602,10 +698,17 @@ export default function ProblemView() {
             />
             <button
               type="button"
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={showOtherLang}
+              className="-mx-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={() => setShowOtherLang((v) => !v)}
             >
-              {showOtherLang ? '▾' : '▸'} 也填 {otherLang === 'python' ? 'Python' : 'JavaScript'} 模板（可选）
+              <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', !showOtherLang && '-rotate-90')} />
+              也填 {otherLang === 'python' ? 'Python' : 'JavaScript'} 模板
+              {otherSkeleton.trim() ? (
+                <span className="text-emerald-600 dark:text-emerald-400">（已填写）</span>
+              ) : (
+                <span>（可选）</span>
+              )}
             </button>
             {showOtherLang && (
               <Textarea
@@ -619,55 +722,58 @@ export default function ProblemView() {
           </div>
 
           {/* ③ 题解（折叠，可稍后补） */}
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => setShowSolution((v) => !v)}
-            >
-              {showSolution ? '▾' : '▸'} ③ 题解（可稍后补）
-            </button>
-            {showSolution && (
-              <Textarea
-                value={pasteSolution}
-                onChange={(e) => setPasteSolution(e.target.value)}
-                placeholder="粘贴官方/社区题解…"
-                rows={4}
-              />
-            )}
-          </div>
+          <CollapseSection
+            index={3}
+            label="题解"
+            badge="可选"
+            status={pasteSolution.trim() ? '已填写' : '可稍后补'}
+            statusOk={!!pasteSolution.trim()}
+            open={showSolution}
+            onToggle={() => setShowSolution((v) => !v)}
+          >
+            <Textarea
+              value={pasteSolution}
+              onChange={(e) => setPasteSolution(e.target.value)}
+              placeholder="粘贴官方/社区题解…"
+              rows={4}
+            />
+          </CollapseSection>
 
-          {/* ④ 手动调整用例（折叠——技术细节藏这里，正常无需打开） */}
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => setShowManualCases((v) => !v)}
-            >
-              {showManualCases ? '▾' : '▸'} 手动调整用例（高级：改参数/期望；原地修改型题在此选「入参N」）
-            </button>
-            {showManualCases && (
-              <div className="rounded-lg border p-2">
-                <TestCaseEditor testCases={pasteCases} onChange={setPasteCases} />
-              </div>
-            )}
-          </div>
+          {/* ④ 手动调整用例（折叠--技术细节藏这里，正常无需打开） */}
+          <CollapseSection
+            index={4}
+            label="手动调整用例"
+            badge="高级"
+            status={pasteCases.length > 0 ? `已识别 ${pasteCases.length} 条` : undefined}
+            statusOk={pasteCases.length > 0}
+            desc="改参数/期望；原地修改型题在此选「入参N」"
+            open={showManualCases}
+            onToggle={() => setShowManualCases((v) => !v)}
+          >
+            <div className="rounded-lg border p-2">
+              <TestCaseEditor testCases={pasteCases} onChange={setPasteCases} />
+            </div>
+          </CollapseSection>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
-              <Upload className="size-3.5" /> 批量导入笔记（.md）
-              <input
-                type="file"
-                multiple
-                accept=".md,text/markdown"
-                className="hidden"
-                onChange={(e) => {
-                  void onBatchImport(e.target.files)
-                  e.target.value = '' // 重置，允许重选同一批文件
-                }}
-              />
-            </label>
-            <Button onClick={savePaste}>贴好了，开始刷题</Button>
+          <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <Button asChild variant="ghost" size="sm" className="self-start">
+              <label className="cursor-pointer">
+                <Upload className="size-3.5" /> 批量导入笔记（.md）
+                <input
+                  type="file"
+                  multiple
+                  accept=".md,text/markdown"
+                  className="hidden"
+                  onChange={(e) => {
+                    void onBatchImport(e.target.files)
+                    e.target.value = '' // 重置，允许重选同一批文件
+                  }}
+                />
+              </label>
+            </Button>
+            <Button onClick={savePaste} className="w-full sm:w-auto">
+              贴好了，开始刷题 <ArrowRight className="size-4" />
+            </Button>
           </div>
           {importMsg && <p className="text-xs text-muted-foreground">{importMsg}</p>}
         </div>
