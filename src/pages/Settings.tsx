@@ -13,7 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { SectionCard } from '@/components/SectionCard'
 import { Stepper } from '@/components/Stepper'
@@ -333,21 +333,45 @@ export default function Settings() {
       <Dialog open={clearOpen} onOpenChange={setClearOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>清空全部数据？</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="size-4" /> 清空全部数据？
+            </DialogTitle>
+            <DialogDescription>
+              会清空所有题目的进度、历史、笔记、SRS 排期（设置与 API key 保留）。
+              建议先<strong className="text-foreground">导出备份</strong>，导入可完整还原。
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            会清空所有题目的进度、历史、笔记、SRS 排期（设置与 API key 保留）。
-            建议先<strong>导出备份</strong>，导入可完整还原。
-          </p>
+
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-foreground/80">
+            此操作不可撤销 —— 唯一恢复方式是导入此前导出的备份。
+          </div>
+
           <div className="space-y-1.5">
-            <Label htmlFor="clearConfirm">输入「确认」以继续</Label>
+            <Label htmlFor="clearConfirm">
+              输入<span className="mx-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">确认</span>以继续
+            </Label>
             <Input
               id="clearConfirm"
               value={clearText}
               onChange={(e) => setClearText(e.target.value)}
               placeholder="确认"
+              aria-invalid={clearText.length > 0 && clearText !== '确认'}
+              className={clearText === '确认' ? 'border-emerald-500/60 focus-visible:ring-emerald-500/40' : undefined}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && clearText === '确认' && !busy) {
+                  e.preventDefault()
+                  void run(async () => {
+                    await clearDb()
+                    setClearOpen(false)
+                  }, '已清空全部题目，设置保留')
+                }
+              }}
             />
+            {clearText.length > 0 && clearText !== '确认' && (
+              <p className="text-xs text-destructive">输入不匹配，需输入「确认」</p>
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setClearOpen(false)}>取消</Button>
             <Button
