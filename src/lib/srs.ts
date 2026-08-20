@@ -2,7 +2,7 @@
 // 口径来自 PRD F1 + spec S1-F1 实现要点；S6-F6 会定 SRS 排期规则，
 // 但「nextReviewAt <= today 即待复习」这一条在本 spec 先用，S6 落地时再校准。
 
-import type { Problem, Stage } from '@/lib/types'
+import type { Problem, ProblemStatus, ProblemUserState, Stage } from '@/lib/types'
 
 /** 本地日期 YYYY-MM-DD（非 UTC，避免把今晚 23:00 的题算到明天） */
 export function todayStr(d = new Date()): string {
@@ -19,12 +19,12 @@ function diffDays(a: string, b: string): number {
   return Math.round((da.getTime() - db.getTime()) / 86_400_000)
 }
 
-/** 已「掌握/通过」的状态——阶段进度、套路进度里算 done */
-const DONE_STATUSES = new Set(['self-solved', 'learned', 'reviewing', 'mastered'])
+/** 已通过的状态——阶段进度、套路进度里算 done（learned 含待复习/循环中/上轮挂科；mastered 已过关） */
+const DONE_STATUSES = new Set(['learned', 'mastered'])
 const isDone = (p: Problem) => DONE_STATUSES.has(p.status)
 
-/** 待复习的状态（spec：learned / pending-review / self-solved / reviewing） */
-export const REVIEWABLE_STATUSES = new Set(['learned', 'pending-review', 'self-solved', 'reviewing'])
+/** 待复习的状态：learned（含 lastFail 挂科态）且 nextReviewAt 到期 */
+export const REVIEWABLE_STATUSES = new Set(['learned'])
 
 /**
  * 今日复习队列：nextReviewAt <= today 且状态可复习；按逾期天数降序
@@ -116,4 +116,40 @@ export function failSchedule(
   today: string,
 ): { srsLevel: number; nextReviewAt: string } {
   return { srsLevel: 0, nextReviewAt: addDays(today, intervalsDays[0]) }
+}
+
+// ===== 状态模型迁移（重构 spec §7）=====
+// 旧 db 残留 self-solved / pending-review / reviewing 三个已退役状态，加载时迁移成
+// 新形状（learned/mastered + self/lastFail）。幂等：已是新形状则原样返回。
+// 前置：intervalsDays 非空（种子 seedSettings.intervalsDays=[3,7,14] 保证）；若为空，
+// top=0 会使所有 self-solved 误判 mastered，故调用方须保证非空。
+export function migrateUserState(
+  u: ProblemUserState,
+  intervalsDays: number[],
+): ProblemUserState {
+  const top = intervalsDays.length
+  let status: ProblemStatus = u.status
+  let self = u.self ?? false
+  let lastFail = u.lastFail ?? false
+  // u.status 运行期可能是旧值（self-solved 等，不在新 ProblemStatus 联合里），按 string 比对
+  switch (u.status as string) {
+    case 'self-solved':
+      status = (u.srsLevel ?? 0) >= top ? 'mastered' : 'learned'
+      self = true
+      lastFail = false
+      break
+    case 'pending-review':
+      status = 'learned'
+      lastFail = true
+      break
+    case 'reviewing':
+      status = 'learned'
+      lastFail = false
+      break
+    default:
+      break
+  }
+  // mastered 必须清排期（旧 self-solved 达顶可能残留 nextReviewAt）
+  const nextReviewAt = status === 'mastered' ? undefined : u.nextReviewAt
+  return { ...u, status, self, lastFail, nextReviewAt }
 }

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Flame, BookOpenCheck, PenLine, Lightbulb, StickyNote } from 'lucide-react'
+import { ArrowRight, Flame, BookOpenCheck, PenLine, Lightbulb, Star, StickyNote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,7 +38,7 @@ export default function Dashboard() {
           { icon: Flame, label: '连续打卡', value: `${seedStats.streakDays} 天`, cls: 'text-orange-500' },
           { icon: BookOpenCheck, label: '累计完成', value: `${seedStats.totalSolved} 题`, cls: 'text-emerald-600' },
           { icon: PenLine, label: '默写通过率', value: `${Math.round(seedStats.reproducePassRate * 100)}%`, cls: 'text-blue-500' },
-          { icon: Lightbulb, label: '自解比例', value: `${Math.round(seedStats.selfSolvedRate * 100)}%`, cls: 'text-amber-500' },
+          { icon: Lightbulb, label: '独立解出率', value: `${Math.round(seedStats.selfSolvedRate * 100)}%`, cls: 'text-amber-500' },
         ].map(({ icon: Icon, label, value, cls }) => (
           <Card key={label}>
             <CardContent className="flex items-center gap-3">
@@ -74,6 +74,15 @@ export default function Dashboard() {
                     <span className="font-mono text-sm text-muted-foreground">#{p.id}</span>
                     <span className="truncate text-sm font-medium">{p.title}</span>
                     <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">{p.pattern}</Badge>
+                    {p.self && (
+                      <Star
+                        className="size-3.5 shrink-0 text-amber-500"
+                        fill="currentColor"
+                        aria-label="自解"
+                      >
+                        <title>我顺极了 —— 没看题解自己解出来的</title>
+                      </Star>
+                    )}
                     {p.note && (
                       <StickyNote
                         className="size-3.5 shrink-0 text-amber-500"
@@ -85,6 +94,11 @@ export default function Dashboard() {
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {days > 0 && <Badge variant="destructive">逾期 {days} 天</Badge>}
+                    {p.lastFail && (
+                      <Badge variant="outline" className="shrink-0 text-amber-600 dark:text-amber-400" title="上次没默过">
+                        易错
+                      </Badge>
+                    )}
                     <Badge variant="secondary">默写重做</Badge>
                     <ArrowRight className="size-4 text-muted-foreground" />
                   </div>
