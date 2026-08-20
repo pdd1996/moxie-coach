@@ -8,20 +8,21 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Heatmap } from '@/components/Heatmap'
 import { useProblems } from '@/lib/store'
-import { seedHeatmap, seedStats } from '@/data/seed'
+import { seedStats } from '@/data/seed'
 import { STAGE_INFO } from '@/lib/types'
-import { reviewQueue, suggestedNew, stageProgress, patternStats, overdueDays, todayStr } from '@/lib/srs'
+import { reviewQueue, suggestedNew, stageProgress, patternStats, overdueDays, todayStr, heatmapData } from '@/lib/srs'
 
 export default function Dashboard() {
   const problems = useProblems()
   const today = todayStr()
 
-  const { queue, suggested, stages, patterns } = useMemo(() => {
+  const { queue, suggested, stages, patterns, heatmap } = useMemo(() => {
     return {
       queue: reviewQueue(problems, today),
       suggested: suggestedNew(problems),
       stages: stageProgress(problems),
       patterns: patternStats(problems),
+      heatmap: heatmapData(problems, today),
     }
   }, [problems, today])
 
@@ -170,7 +171,7 @@ export default function Dashboard() {
             <CardTitle className="text-base">打卡热力图（近 17 周）</CardTitle>
           </CardHeader>
           <CardContent>
-            <Heatmap data={seedHeatmap} />
+            <Heatmap data={heatmap} />
             <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
               少
               {['bg-muted', 'bg-emerald-200 dark:bg-emerald-900', 'bg-emerald-400 dark:bg-emerald-700', 'bg-emerald-500 dark:bg-emerald-600', 'bg-emerald-600 dark:bg-emerald-400'].map((c) => (

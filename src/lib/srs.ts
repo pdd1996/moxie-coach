@@ -62,6 +62,42 @@ export function stageProgress(problems: Problem[]): { stage: Stage; done: number
   })
 }
 
+/** 把 ISO 时间戳按本地日期切成 YYYY-MM-DD（与 todayStr 同口径，避免 UTC 偏移把夜间题算到明天） */
+function dayOf(ts: string): string {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * 打卡热力图：最近 days 天（含今天）每天动过的题数（去重题号），老→新排列，
+ * 供 Heatmap 顺序分周显示。「动过」= 当天有任意一条 history 记录（attempt/reproduce/review，
+ * 不限通过）——打卡只看「今天有没有上手」，不看挂没挂。
+ * 未来日期的脏记录不入图；空历史自然为 0。
+ */
+export function heatmapData(problems: Problem[], today = todayStr(), days = 119): number[] {
+  const counts = new Map<string, Set<number>>()
+  for (const p of problems) {
+    for (const h of p.history) {
+      const day = dayOf(h.ts)
+      if (day > today) continue
+      let set = counts.get(day)
+      if (!set) {
+        set = new Set<number>()
+        counts.set(day, set)
+      }
+      set.add(p.id)
+    }
+  }
+  const out: number[] = []
+  for (let d = addDays(today, -(days - 1)); d <= today; d = addDays(d, 1)) {
+    out.push(counts.get(d)?.size ?? 0)
+  }
+  return out
+}
+
 /** 各套路进度：按 pattern 主名（去掉括号注释）聚合，仅保留 >=2 题的，按 done 降序 */
 export function patternStats(problems: Problem[]): { name: string; done: number; total: number }[] {
   return Object.entries(

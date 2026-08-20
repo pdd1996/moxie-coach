@@ -159,14 +159,7 @@ export const seedSettings: Settings = {
   defaultLang: 'python',
 }
 
-/** 打卡热力图假数据：最近 17 周（119 天），值 0-4 表示当天做题数（F8 统计 V1.1 再真实化） */
-export const seedHeatmap: number[] = Array.from({ length: 119 }, (_, i) => {
-  // 用固定伪随机让原型每次刷新长得一样
-  const v = (i * 2654435761) % 97
-  if (i > 119 - 9) return v % 3 // 最近一周多刷一点
-  return v < 62 ? 0 : (v % 4)
-})
-
+/** 顶部统计卡假数据（连续打卡/累计完成/通过率/独立解出率）。热力图已改由 srs.heatmapData 从真实 history 聚合 */
 export const seedStats = {
   streakDays: 6,
   totalSolved: 17,
