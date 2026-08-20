@@ -57,7 +57,7 @@ export default function Dashboard() {
             </Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
           {visibleQueue.map((p) => {
             const days = overdueDays(p, today)
             return (
@@ -116,7 +116,7 @@ export default function Dashboard() {
           )}
           {suggested.length > 0 && <Separator className="my-3" />}
           {suggested.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
                 <Lightbulb className="size-3.5 text-emerald-600" />
                 建议新题 · 今天开 {suggested.length} 道
