@@ -77,9 +77,9 @@ export default function Settings() {
   const patchTimeLimit = (k: 'easy' | 'medium' | 'hard', v: number) =>
     updateSettings({ timeLimitMin: { ...settings.timeLimitMin, [k]: v } })
 
-  // —— 复习间隔(三等分:改任意一个,三者同步成同一个值)——
-  const patchInterval = (_i: number, v: number) => {
-    updateSettings({ intervalsDays: settings.intervalsDays.map(() => v) })
+  // —— 复习间隔:每个间隔独立可调 ——
+  const patchInterval = (i: number, v: number) => {
+    updateSettings({ intervalsDays: settings.intervalsDays.map((d, idx) => (idx === i ? v : d)) })
   }
 
   // —— 恢复默认（按卡片局部恢复，不动 AI key） ——
@@ -240,7 +240,7 @@ export default function Settings() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            三等分间隔（任一调整三者同步）。走完所有间隔 → 标记为「过关了」。过了间隔还记得，才进入长期记忆（艾宾浩斯）。
+            走完所有间隔 → 标记为「过关了」。过了间隔还记得，才进入长期记忆（艾宾浩斯）。
           </p>
         </div>
       </SectionCard>
