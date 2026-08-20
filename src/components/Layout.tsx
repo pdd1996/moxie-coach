@@ -37,15 +37,16 @@ export function Layout() {
             <span className="hidden md:inline">{label}</span>
           </NavLink>
         ))}
-        <div className="mt-auto flex justify-center md:justify-start md:px-2">
-          <Button variant="ghost" size="icon" onClick={toggle} title="切换深浅色">
-            {theme === 'dark' ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
-          </Button>
-        </div>
       </aside>
 
       {/* 主内容 */}
-      <main className="min-w-0 flex-1">
+      <main className="flex min-w-0 flex-1 flex-col">
+        {/* 顶栏：右侧放深浅色切换 */}
+        <div className="sticky top-0 z-20 flex h-12 shrink-0 items-center justify-end border-b bg-card px-4">
+          <Button variant="outline" size="icon" onClick={toggle} title="切换深浅色">
+            {theme === 'dark' ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
+          </Button>
+        </div>
         <Outlet />
       </main>
     </div>

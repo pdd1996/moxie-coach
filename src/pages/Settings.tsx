@@ -10,13 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
-import { useTheme } from '@/lib/theme'
 import { useExportDb, useImportDb, useClearDb } from '@/lib/store'
 
 type Status = { kind: 'ok' | 'err'; msg: string } | null
 
 export default function Settings() {
-  const { theme, setTheme } = useTheme()
   const [aiEnabled, setAiEnabled] = useState(true)
   const [baseUrl, setBaseUrl] = useState('https://api.deepseek.com')
   const [apiKey, setApiKey] = useState('')
@@ -147,25 +145,6 @@ export default function Settings() {
             <div className="pb-2 text-sm text-muted-foreground">之后 → 掌握 ✓</div>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">3 天后还记得，才变成长期记忆（艾宾浩斯）</p>
-        </CardContent>
-      </Card>
-
-      {/* 外观 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">外观</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center gap-2">
-          {(['light', 'dark'] as const).map((t) => (
-            <Button
-              key={t}
-              variant={theme === t ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTheme(t)}
-            >
-              {t === 'light' ? '浅色' : '深色'}
-            </Button>
-          ))}
         </CardContent>
       </Card>
 
