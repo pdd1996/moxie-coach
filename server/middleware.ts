@@ -27,7 +27,9 @@ function todayStamp(d = new Date()): string {
 }
 
 /**
- * 写临时文件再 rename，保证中途断电不留半截文件（同分区 rename 原子）。
+ * 写临时文件再 rename：同分区 rename 原子，落库瞬间目标文件不会被写成半截。
+ * 注意并未 fsync——数据可能还在 OS page cache，断电可能整体写丢（旧内容或空文件，
+ * 但不会是半截）。dev server 单机本地库可接受，不追求断电耐久。
  *
  * tmp 名带 pid + 时间戳 + 随机串：两个并发 PUT 不再抢同一个 .tmp
  * （旧实现固定 `${filePath}.tmp`，并发 PUT 会互相覆盖对方的 tmp 再 rename，串数据）。
@@ -58,6 +60,27 @@ async function writeAtomic(filePath: string, data: string): Promise<void> {
   }
   await fs.unlink(tmp).catch(() => {})
   throw lastErr
+}
+
+/**
+ * 启动时清理 writeAtomic 残留的孤儿 tmp：唯一 tmp 名后，crash 在 writeFile 与 rename
+ * 之间会留下 `db.json.<pid>.<ts>.<rand>.tmp`（旧固定名实现靠下次成功写覆盖同名 tmp 自清，
+ * 唯一名失去这自清，故需显式扫）。在 configureServer 阶段调用，此时 server 尚未 listen，
+ * 不会有并发请求写新 tmp 被误删。仅扫 db.json 的 tmp，不动 .corrupt-*.json（那是人工留存）。
+ */
+async function sweepOrphanTmp(dataDir: string, dbBase: string): Promise<void> {
+  let files: string[]
+  try {
+    files = await fs.readdir(dataDir)
+  } catch {
+    return
+  }
+  const re = new RegExp(`^${dbBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*\\.tmp$`)
+  await Promise.all(
+    files
+      .filter((f) => re.test(f))
+      .map((f) => fs.unlink(path.join(dataDir, f)).catch(() => {})),
+  )
 }
 
 /** 校验是合法 db 结构（顶层有 problems 数组 + settings 对象，与 S9-F9 导入校验对齐） */
@@ -201,6 +224,9 @@ export function dbApi(): Plugin {
       const dataDir = path.resolve(root, 'data')
       const dbPath = path.join(dataDir, 'db.json')
       const backupsDir = path.join(dataDir, 'backups')
+
+      // 启动即清 writeAtomic 残留的孤儿 tmp（server 尚未 listen，无并发请求）
+      void sweepOrphanTmp(dataDir, 'db.json').catch(() => {})
 
       const loadSeed = () =>
         server.ssrLoadModule(SEED_URL) as Promise<{
