@@ -158,11 +158,3 @@ export const seedSettings: Settings = {
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'python',
 }
-
-/** 顶部统计卡假数据（连续打卡/累计完成/通过率/独立解出率）。热力图已改由 srs.heatmapData 从真实 history 聚合 */
-export const seedStats = {
-  streakDays: 6,
-  totalSolved: 17,
-  reproducePassRate: 0.71,
-  selfSolvedRate: 0.29,
-}

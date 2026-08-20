@@ -116,6 +116,67 @@ export function patternStats(problems: Problem[]): { name: string; done: number;
     .sort((a, b) => b.done - a.done)
 }
 
+// ===== 顶部 KPI 纯函数（从真实 history / status 聚合，取代 seedStats 假数据）=====
+
+/** 所有「动过题」的日期集合（YYYY-MM-DD），口径与 heatmapData 一致：当天有任意 history 记录 */
+function activeDaySet(problems: Problem[], today = todayStr()): Set<string> {
+  const set = new Set<string>()
+  for (const p of problems) {
+    for (const h of p.history) {
+      const day = dayOf(h.ts)
+      if (day > today) continue
+      set.add(day)
+    }
+  }
+  return set
+}
+
+/**
+ * 连续打卡天数：从今天往回数连续有活动的天数。
+ * 今天还没动过不算断卡——从昨天起算（避免「还没开始今天的练习」就被判 0）。
+ */
+export function streakDays(problems: Problem[], today = todayStr()): number {
+  const active = activeDaySet(problems, today)
+  let d = today
+  // 今天没动过则从昨天起算
+  if (!active.has(d)) d = addDays(today, -1)
+  let streak = 0
+  while (active.has(d)) {
+    streak++
+    d = addDays(d, -1)
+  }
+  return streak
+}
+
+/** 累计完成：已学会的题数（learned 待复习 + mastered 过关了），与阶段进度 done 同口径 */
+export function totalSolved(problems: Problem[]): number {
+  return problems.filter(isDone).length
+}
+
+/**
+ * 默写通过率：所有默写（首次 reproduce + 复习 review，见 ProblemView A3/F8 区分）的
+ * pass / (pass + fail + timeout)。只算默写不算 attempt，attempt 是自解新题不是默写。
+ */
+export function reproducePassRate(problems: Problem[]): number {
+  let pass = 0,
+    total = 0
+  for (const p of problems) {
+    for (const h of p.history) {
+      if (h.phase !== 'reproduce' && h.phase !== 'review') continue
+      total++
+      if (h.outcome === 'pass') pass++
+    }
+  }
+  return total === 0 ? 0 : pass / total
+}
+
+/** 独立解出率：自解徽章题数 / 累计完成（self 历史荣誉不撤销，故按题去重计数） */
+export function selfSolvedRate(problems: Problem[]): number {
+  const solved = totalSolved(problems)
+  if (solved === 0) return 0
+  return problems.filter((p) => p.self && isDone(p)).length / solved
+}
+
 // ===== SRS 排期纯函数（S6 规则，S3 自解通过 / S4 默写通过先调用）=====
 // srsLevel 语义：0=刚通过待首复习，1=过了间隔[0]，…，N=intervalsDays.length 时 mastered。
 // 间隔序列默认 [3,7,14]：首通过排 +3，复习通过逐级 +7/+14，走完置 mastered 不再排期。

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { StoreProvider } from '@/lib/store'
 import Dashboard from '@/pages/Dashboard'
+import Progress from '@/pages/Progress'
 import ProblemList from '@/pages/ProblemList'
 import ProblemView from '@/pages/ProblemView'
 import Settings from '@/pages/Settings'
@@ -20,6 +21,7 @@ export default function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
+            <Route path="progress" element={<Progress />} />
             <Route path="problems" element={<ProblemList />} />
             <Route path="problem/:id" element={<ProblemViewByKey />} />
             <Route path="settings" element={<Settings />} />
