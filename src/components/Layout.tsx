@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
   ListChecks,
+  TrendingUp,
   Settings,
   Moon,
   Sun,
@@ -16,8 +17,9 @@ import { Button } from '@/components/ui/button'
 import { useTheme } from '@/lib/theme'
 
 const nav = [
-  { to: '/', label: '仪表盘', icon: LayoutDashboard, end: true },
+  { to: '/', label: '今日', icon: LayoutDashboard, end: true },
   { to: '/problems', label: '题单', icon: ListChecks, end: false },
+  { to: '/progress', label: '进度', icon: TrendingUp, end: false },
   { to: '/settings', label: '设置', icon: Settings, end: false },
 ]
 
