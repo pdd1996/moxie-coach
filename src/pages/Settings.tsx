@@ -1,29 +1,34 @@
 import { useRef, useState } from 'react'
-import { Download, Upload, Trash2, TriangleAlert } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import {
+  Brain, Clock3, Globe2, Database,
+  Download, Upload, Trash2, TriangleAlert, Lock,
+} from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
+import { SectionCard } from '@/components/SectionCard'
+import { Stepper } from '@/components/Stepper'
 import { useExportDb, useImportDb, useClearDb, useSettings, useUpdateSettings } from '@/lib/store'
+import { seedSettings } from '@/data/seed'
 import type { Lang } from '@/lib/types'
 
 type Status = { kind: 'ok' | 'err'; msg: string } | null
 
-/** 把输入值夹到 [min,max]；空/非数字返回 min（输入框仍可清空，blur 时回正） */
-const clampInt = (v: string, min: number, max: number, fallback: number): number => {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return fallback
-  return Math.min(max, Math.max(min, Math.trunc(n)))
-}
+/** 难度档位（用于刷题时长三列） */
+const LEVELS = [
+  { k: 'easy', label: 'Easy' },
+  { k: 'medium', label: 'Medium' },
+  { k: 'hard', label: 'Hard' },
+] as const
 
 export default function Settings() {
   const settings = useSettings()
@@ -69,275 +74,274 @@ export default function Settings() {
   const patchAi = (patch: Partial<typeof ai>) => updateSettings({ ai: { ...ai, ...patch } })
 
   // —— 刷题时长 ——
-  const patchTimeLimit = (k: 'easy' | 'medium' | 'hard', v: string) =>
-    updateSettings({ timeLimitMin: { ...settings.timeLimitMin, [k]: clampInt(v, 1, 240, 25) } })
+  const patchTimeLimit = (k: 'easy' | 'medium' | 'hard', v: number) =>
+    updateSettings({ timeLimitMin: { ...settings.timeLimitMin, [k]: v } })
 
   // —— 复习间隔 ——
-  const patchInterval = (i: number, v: string) => {
-    const next = settings.intervalsDays.map((d, idx) => (idx === i ? clampInt(v, 1, 365, 3) : d))
+  const patchInterval = (i: number, v: number) => {
+    const next = settings.intervalsDays.map((d, idx) => (idx === i ? v : d))
     updateSettings({ intervalsDays: next })
   }
 
+  // —— 恢复默认（按卡片局部恢复，不动 AI key） ——
+  const resetRhythm = () => {
+    updateSettings({
+      newPerDay: seedSettings.newPerDay,
+      reviewPerDay: seedSettings.reviewPerDay,
+      timeLimitMin: { ...seedSettings.timeLimitMin },
+      intervalsDays: [...seedSettings.intervalsDays],
+    })
+  }
+  const resetLang = () => updateSettings({ defaultLang: seedSettings.defaultLang })
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
+    <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-8">
       <div>
         <h1 className="text-2xl font-bold">设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">改动自动保存到本机 data/db.json</p>
       </div>
 
-      {/* AI 教练 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            AI 教练
-            <Badge variant={aiEnabled ? 'default' : 'secondary'}>{aiEnabled ? '已启用' : '未启用'}</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">启用 AI 功能</div>
-              <div className="text-xs text-muted-foreground">不启用时，软件是纯纪律工具，功能完整</div>
+      {/* ── AI 教练 ──────────────────────────────────────────────── */}
+      <SectionCard
+        icon={<Brain />}
+        title="AI 教练"
+        description="不启用时，软件是纯纪律工具，功能完整。"
+        badge={
+          <Badge variant={aiEnabled ? 'default' : 'secondary'} className="text-[10px]">
+            {aiEnabled ? '已启用' : '未启用'}
+          </Badge>
+        }
+      >
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium">启用 AI 功能</div>
+          <Switch
+            checked={aiEnabled}
+            onCheckedChange={(v) => {
+              setAiEnabled(v)
+              // 关闭即清 key，避免空开；开启不自动填，留给用户输入
+              if (!v) {
+                setApiKey('')
+                patchAi({ apiKey: '' })
+              }
+            }}
+          />
+        </div>
+        {aiEnabled && (
+          <>
+            <Separator />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="baseUrl">接口地址（OpenAI 兼容）</Label>
+                <Input
+                  id="baseUrl"
+                  value={ai.baseUrl}
+                  onChange={(e) => patchAi({ baseUrl: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="model">模型名</Label>
+                <Input
+                  id="model"
+                  value={ai.model}
+                  onChange={(e) => patchAi({ model: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="apiKey" className="flex items-center gap-1.5">
+                  <Lock className="size-3" /> API Key
+                </Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onBlur={() => patchAi({ apiKey })}
+                  placeholder="sk-…（仅保存在本机 db.json，不上传任何地方）"
+                />
+              </div>
             </div>
-            <Switch
-              checked={aiEnabled}
-              onCheckedChange={(v) => {
-                setAiEnabled(v)
-                // 关闭即清 key，避免空开；开启不自动填，留给用户输入
-                if (!v) {
-                  setApiKey('')
-                  patchAi({ apiKey: '' })
-                }
-              }}
-            />
-          </div>
-          {aiEnabled && (
-            <>
-              <Separator />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="baseUrl">接口地址（OpenAI 兼容）</Label>
-                  <Input
-                    id="baseUrl"
-                    value={ai.baseUrl}
-                    onChange={(e) => patchAi({ baseUrl: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="model">模型名</Label>
-                  <Input
-                    id="model"
-                    value={ai.model}
-                    onChange={(e) => patchAi({ model: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="apiKey">API Key</Label>
-                  <Input
-                    id="apiKey"
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onBlur={() => patchAi({ apiKey })}
-                    placeholder="sk-…（仅保存在本机 db.json，不上传任何地方）"
-                  />
-                </div>
-              </div>
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-2.5 text-xs text-muted-foreground">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-                key 以明文存在本机 data/db.json 中（单机自用可接受），请勿把该文件连同 key 提交到公开仓库
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-foreground/80">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+              key 以明文存在本机 data/db.json 中（单机自用可接受），请勿把该文件连同 key 提交到公开仓库
+            </div>
+          </>
+        )}
+      </SectionCard>
 
-      {/* 每日新题数 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">每日新题数</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-end gap-4">
-            <div className="w-28 space-y-1.5">
-              <Label htmlFor="newPerDay">每天新练</Label>
-              <Input
-                id="newPerDay"
-                type="number"
+      {/* ── 刷题节奏（合并：每日新题 / 每日复习 / 刷题时长 / 复习间隔）── */}
+      <SectionCard
+        icon={<Clock3 />}
+        title="刷题节奏"
+        description="复习优先，新题按节奏来；改完实时影响仪表盘推荐数量。"
+        onReset={resetRhythm}
+      >
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>每天新练</Label>
+            <div className="flex items-center gap-2">
+              <Stepper
+                ariaLabel="每天新练题数"
+                value={settings.newPerDay}
+                onChange={(v) => updateSettings({ newPerDay: v })}
                 min={1}
                 max={20}
-                value={settings.newPerDay}
-                onChange={(e) =>
-                  updateSettings({ newPerDay: clampInt(e.target.value, 1, 20, 3) })
-                }
+                unit="道"
               />
+              <span className="text-xs text-muted-foreground">仪表盘「建议新题」一次列几道</span>
             </div>
-            <p className="pb-2 text-xs text-muted-foreground">道新题（仪表盘「建议新题」一次列几道）</p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            复习优先，新题数量按节奏来；默认 3，可改成 1 慢工细活、5 冲刺
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* 每日复习上限 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">每日复习上限</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-end gap-4">
-            <div className="w-28 space-y-1.5">
-              <Label htmlFor="reviewPerDay">每天复习</Label>
-              <Input
-                id="reviewPerDay"
-                type="number"
+          <div className="space-y-1.5">
+            <Label>每天复习</Label>
+            <div className="flex items-center gap-2">
+              <Stepper
+                ariaLabel="每天复习上限"
+                value={settings.reviewPerDay}
+                onChange={(v) => updateSettings({ reviewPerDay: v })}
                 min={1}
                 max={50}
-                value={settings.reviewPerDay}
-                onChange={(e) =>
-                  updateSettings({ reviewPerDay: clampInt(e.target.value, 1, 50, 5) })
-                }
+                unit="道"
               />
+              <span className="text-xs text-muted-foreground">逾期最久优先，超出的明天自然还在</span>
             </div>
-            <p className="pb-2 text-xs text-muted-foreground">道（仪表盘只显示前 N 道，逾期最久优先）</p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            软上限，不改排期 —— 超出的今天先不做，明天自然还在。默认 5，设大就全做
-          </p>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* 刷题时长 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">刷题时长（分钟）</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <Separator />
+
+        <div className="space-y-1.5">
+          <Label>刷题时长（分钟）</Label>
           <div className="grid grid-cols-3 gap-4">
-            {([
-              { k: 'easy', label: 'Easy' },
-              { k: 'medium', label: 'Medium' },
-              { k: 'hard', label: 'Hard' },
-            ] as const).map(({ k, label }) => (
-              <div key={k} className="space-y-1.5">
-                <Label htmlFor={k}>{label}</Label>
-                <Input
-                  id={k}
-                  type="number"
+            {LEVELS.map(({ k, label }) => (
+              <div key={k} className="space-y-1">
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <Stepper
+                  ariaLabel={`${label} 时长`}
+                  value={settings.timeLimitMin[k]}
+                  onChange={(v) => patchTimeLimit(k, v)}
                   min={1}
                   max={240}
-                  value={settings.timeLimitMin[k]}
-                  onChange={(e) => patchTimeLimit(k, e.target.value)}
+                  unit="分"
                 />
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            卡住就停，别死磕 -- Easy 全做、Medium 选做、Hard 只看题解
-          </p>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* SRS 间隔 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">复习间隔（天）</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-4 items-end gap-4">
+        <Separator />
+
+        <div className="space-y-1.5">
+          <Label>复习间隔（天）</Label>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
             {settings.intervalsDays.map((d, i) => (
-              <div key={i} className="space-y-1.5">
-                <Label>第 {i + 1} 次复习</Label>
-                <Input
-                  type="number"
+              <div key={i} className="space-y-1">
+                <div className="text-xs text-muted-foreground">第 {i + 1} 次复习</div>
+                <Stepper
+                  ariaLabel={`第 ${i + 1} 次复习间隔`}
+                  value={d}
+                  onChange={(v) => patchInterval(i, v)}
                   min={1}
                   max={365}
-                  value={d}
-                  onChange={(e) => patchInterval(i, e.target.value)}
+                  unit="天"
                 />
               </div>
             ))}
-            <div className="pb-2 text-sm text-muted-foreground">之后 → 掌握 ✓</div>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">3 天后还记得，才变成长期记忆（艾宾浩斯）</p>
-        </CardContent>
-      </Card>
+          <p className="text-xs text-muted-foreground">
+            走完所有间隔 → 标记为「过关了」。3 天后还记得，才进入长期记忆（艾宾浩斯）。
+          </p>
+        </div>
+      </SectionCard>
 
-      {/* 默认语言 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">默认语言</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Select
-            value={settings.defaultLang}
-            onValueChange={(v) => updateSettings({ defaultLang: v as Lang })}
+      {/* ── 默认语言 ──────────────────────────────────────────────── */}
+      <SectionCard
+        icon={<Globe2 />}
+        title="默认语言"
+        description="新题 / 没有上次记录时用的语言。"
+        onReset={resetLang}
+      >
+        <Select
+          value={settings.defaultLang}
+          onValueChange={(v) => updateSettings({ defaultLang: v as Lang })}
+        >
+          <SelectTrigger id="defaultLang" className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="python">Python</SelectItem>
+            <SelectItem value="javascript">JavaScript</SelectItem>
+          </SelectContent>
+        </Select>
+      </SectionCard>
+
+      {/* ── 数据管理 ──────────────────────────────────────────────── */}
+      <SectionCard
+        icon={<Database />}
+        title="数据管理"
+        description={
+          <>
+            保存在 <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">data/db.json</code>，每日自动备份（保留 30 份）。
+          </>
+        }
+      >
+        {/* 安全区 */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => run(exportDb, '已导出 db.json')}
           >
-            <SelectTrigger id="defaultLang" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="python">Python</SelectItem>
-              <SelectItem value="javascript">JavaScript</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">新题 / 没有上次记录时的默认语言</p>
-        </CardContent>
-      </Card>
+            <Download className="size-4" /> 导出备份
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="size-4" /> 导入备份
+          </Button>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={onImportFile}
+        />
+        <p className="text-xs text-muted-foreground">
+          导入会覆盖当前数据，请先导出备份。
+        </p>
 
-      {/* 数据管理 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">数据管理</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            数据保存在 <code className="rounded bg-muted px-1 py-0.5 font-mono">data/db.json</code>，每日自动备份（保留 30 份）
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => run(exportDb, '已导出 db.json')}
-            >
-              <Download className="size-4" /> 导出备份
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => fileRef.current?.click()}
-            >
-              <Upload className="size-4" /> 导入备份
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={busy}
-              onClick={() => { setClearText(''); setClearOpen(true) }}
-            >
-              <Trash2 className="size-4" /> 清空全部数据
-            </Button>
+        {/* 危险区 */}
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <div className="flex items-start gap-2">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+            <div className="flex-1 space-y-2">
+              <div>
+                <div className="text-sm font-medium text-destructive">危险区</div>
+                <div className="text-xs text-muted-foreground">
+                  清空会删除所有题目的进度、历史、笔记、SRS 排期（设置与 API key 保留）。
+                </div>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={busy}
+                onClick={() => { setClearText(''); setClearOpen(true) }}
+              >
+                <Trash2 className="size-4" /> 清空全部数据
+              </Button>
+            </div>
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            hidden
-            onChange={onImportFile}
-          />
-          {status && (
-            <p className={`text-xs ${status.kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
-              {status.msg}
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            导入会覆盖当前数据，请先导出备份；清空仅删题目进度，保留设置（API key 等）
+        </div>
+
+        {status && (
+          <p className={`text-xs ${status.kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+            {status.msg}
           </p>
-        </CardContent>
-      </Card>
+        )}
+      </SectionCard>
 
       {/* 清空全部数据二次确认 */}
       <Dialog open={clearOpen} onOpenChange={setClearOpen}>
