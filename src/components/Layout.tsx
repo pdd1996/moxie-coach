@@ -165,7 +165,9 @@ export function Layout() {
       </aside>
 
       {/* 主内容 */}
-      <main className="flex min-w-0 flex-1 flex-col">
+      {/* 不能是 flex 容器：页面根节点都是 mx-auto max-w-* 的块级惯用法，
+          flex 子项的 auto 交叉轴 margin 会禁用 stretch，整页会收缩成内容宽（表格页随数据变窄） */}
+      <main className="min-w-0 flex-1">
         {/* 顶栏 */}
         <div className="sticky top-0 z-20 flex h-12 shrink-0 items-center justify-between border-b bg-card/80 px-4 backdrop-blur-sm">
           <span className="hidden text-xs text-muted-foreground sm:inline">
