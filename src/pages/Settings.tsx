@@ -215,7 +215,6 @@ export default function Settings() {
                   onChange={(v) => patchTimeLimit(k, v)}
                   min={1}
                   max={240}
-                  unit="分"
                 />
               </div>
             ))}
@@ -236,7 +235,6 @@ export default function Settings() {
                   onChange={(v) => patchInterval(i, v)}
                   min={1}
                   max={365}
-                  unit="天"
                 />
               </div>
             ))}
