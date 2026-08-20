@@ -26,7 +26,7 @@ const OLD = new Set(['self-solved', 'pending-review', 'reviewing'])
 const noOld = (ps) => ps.every(p => !OLD.has(p.status))
 
 const settings = {
-  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' },
+  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-v4-flash' },
   intervalsDays: [3, 7, 14],
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'javascript', // 强制 JS 判题，避开 pyodide

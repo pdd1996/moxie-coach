@@ -29,7 +29,7 @@ const noOld = (ps) => ps.every(p => !OLD.has(p.status))
 
 // 完整 settings（与 seedSettings 一致，保证 app 渲染不缺字段）
 const settings = {
-  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' },
+  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-v4-flash' },
   intervalsDays: [3, 7, 14],
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'python',

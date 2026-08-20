@@ -26,7 +26,7 @@ const dbPut = async (db) => { await fetch(`${BASE}/api/db`, { method: 'PUT', hea
 const find = (ps, id) => ps.find(p => p.id === id)
 
 const settings = {
-  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' },
+  ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-v4-flash' },
   intervalsDays: [3, 7, 14],
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'javascript',
