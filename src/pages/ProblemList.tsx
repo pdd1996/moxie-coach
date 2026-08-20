@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, ExternalLink, StickyNote } from 'lucide-react'
+import { Search, ExternalLink, Star, StickyNote } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,10 +14,7 @@ import { cn } from '@/lib/utils'
 const STATUS_BADGE: Record<string, string> = {
   new: 'bg-muted text-muted-foreground',
   'in-progress': 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
-  'self-solved': 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
   learned: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-  'pending-review': 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
-  reviewing: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
   mastered: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   skipped: 'bg-muted text-muted-foreground',
 }
@@ -54,8 +51,27 @@ function ProblemRow({ p }: { p: Problem }) {
         {p.signal ?? '-'}
       </TableCell>
       <TableCell>
-        <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs', STATUS_BADGE[p.status])}>
-          {STATUS_LABEL[p.status]}
+        <span className="inline-flex items-center gap-1">
+          <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs', STATUS_BADGE[p.status])}>
+            {STATUS_LABEL[p.status]}
+          </span>
+          {p.self && (
+            <Star
+              className="size-3.5 text-amber-500"
+              fill="currentColor"
+              aria-label="自解"
+            >
+              <title>我顺极了 —— 没看题解自己解出来的</title>
+            </Star>
+          )}
+          {p.lastFail && (
+            <span
+              className="inline-flex rounded-full bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-600 dark:text-amber-400"
+              title="上次没默过"
+            >
+              易错
+            </span>
+          )}
         </span>
       </TableCell>
       <TableCell className="text-right">

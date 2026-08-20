@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft, BookOpen, CheckCircle2, Eye, EyeOff, ExternalLink,
-  Lightbulb, Maximize2, Minimize2, PenLine, Play, Sparkles, Upload, XCircle,
+  Lightbulb, Maximize2, Minimize2, PenLine, Play, Sparkles, Star, Upload, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,12 +58,6 @@ export default function ProblemView() {
   )
   // 本次默写是否已结算：笔记弹窗为必经步，任何途径回到 reproduce 都不得二次结算
   const settledRef = useRef(false)
-  // 进入时是否为自解复习（mount 快照）：复习中 effect 对 self-solved 不覆盖（见下），
-  // 故暂停/恢复后 status 仍是 self-solved，快照始终为真 → 通过保持 self-solved；
-  // 一旦失败 status 被改成 pending-review，下次进入快照为假 → 通过变 learned（失败即降级，不再恢复）。
-  const [entryWasSelfSolved, setEntryWasSelfSolved] = useState(() =>
-    isReviewEntry && problem?.status === 'self-solved',
-  )
   // 默认语言：优先上次用的，其次用户设置 defaultLang，最后兜底 python
   // （types 注释：defaultLang = 新题/无 lastLang 时的默认语言；原先硬编码 python 会无视设置）
   const [lang, setLang] = useState<Lang>(problem?.lastLang ?? settings.defaultLang ?? 'python')
@@ -119,23 +113,6 @@ export default function ProblemView() {
   useEffect(() => {
     if (problem && phase === 'attempt' && problem.status === 'new') {
       updateProblem(problem.id, { status: 'in-progress' })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
-
-  // 复习入口进默写置 reviewing（S4-F4）：到期复习直进 reproduce 时置，标识「正在复习这题」。
-  // 关键：self-solved 不覆盖——否则持久化后暂停/恢复会丢失自解标记，结算降级成 learned。
-  // 自解题复习时保持 self-solved（badge 显示自解，仍在复习队列里），通过结算再判定升/降级。
-  // 失败由 onReproduceFail 改成 pending-review，故「失败即降级」靠 status 离开 self-solved 实现。
-  useEffect(() => {
-    if (
-      problem &&
-      phase === 'reproduce' &&
-      isReviewEntry &&
-      problem.status !== 'reviewing' &&
-      problem.status !== 'self-solved'
-    ) {
-      updateProblem(problem.id, { status: 'reviewing' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
@@ -212,7 +189,6 @@ export default function ProblemView() {
   const enterReproduce = () => {
     setPhase('reproduce')
     setReproducePhaseTag('reproduce') // 从 solution 态进 = 首次默写
-    setEntryWasSelfSolved(false) // 本轮看过题解，通过算 learned 而非保持 self-solved
     settledRef.current = false // 新一轮默写，结算守卫复位
     setCode(problem.skeleton?.[lang] ?? '')
     setResults(null)
@@ -256,33 +232,34 @@ export default function ProblemView() {
     updateProblem(problem.id, { history: [...problem.history, entry] })
   }
 
-  // 默写通过（S4-F4）：首次→learned，自解复习通过→保持 self-solved，达上限→mastered；调 S6 排期
+  // 默写通过（重构 spec §5.2）：通过一律 learned（达顶 mastered），自解荣誉由 self 徽章独立承载
   const onReproducePass = () => {
     if (!allPass || settledRef.current) return
     settledRef.current = true
     setZen(false) // 从专注模式结算：退出 zen，让笔记弹窗落在普通层而非叠在全屏编辑器上
     const sched = passSchedule(problem.srsLevel, settings.intervalsDays, todayStr())
     recordReproduce('pass')
-    const status = sched.mastered
-      ? 'mastered'
-      : entryWasSelfSolved ? 'self-solved' : 'learned'
     updateProblem(problem.id, {
-      status,
+      status: sched.mastered ? 'mastered' : 'learned',
+      lastFail: false, // 通过即清挂科标记
       srsLevel: sched.srsLevel,
-      ...(sched.nextReviewAt ? { nextReviewAt: sched.nextReviewAt } : {}),
+      // 达顶时 sched.nextReviewAt 为 undefined → 显式清掉旧排期（mastered 不进队列，留着是脏数据）；
+      // 非达顶排下次复习。与 onReproduceFail 的直赋写法一致（重构 spec §5.2）
+      nextReviewAt: sched.nextReviewAt,
       lastLang: lang,
     })
     openNote('pass')
   }
 
-  // 默写失败（S4-F4）：pending-review + srsLevel 重置 0 + 排 intervalsDays[0] 天（默认 3）
+  // 默写失败（重构 spec §5.3）：learned + lastFail=true + srsLevel 重置 0 + 排 intervalsDays[0] 天
   const onReproduceFail = () => {
     if (settledRef.current) return
     settledRef.current = true
     const sched = failSchedule(settings.intervalsDays, todayStr())
     recordReproduce('fail')
     updateProblem(problem.id, {
-      status: 'pending-review',
+      status: 'learned',
+      lastFail: true,
       srsLevel: sched.srsLevel,
       nextReviewAt: sched.nextReviewAt,
       lastLang: lang,
@@ -305,15 +282,17 @@ export default function ProblemView() {
     updateProblem(problem.id, { history: [...problem.history, entry] })
   }
 
-  // 自解通过：status=self-solved，调 S6 排期；达间隔上限 → mastered（与 onReproducePass 一致）
+  // 自解通过（重构 spec §5.1）：status=learned（达顶 mastered）+ self 徽章置位；调 S6 排期
   const selfSolved = () => {
     if (!allPass) return
     const sched = passSchedule(problem.srsLevel, settings.intervalsDays, todayStr())
     recordAttempt('pass')
     updateProblem(problem.id, {
-      status: sched.mastered ? 'mastered' : 'self-solved',
+      status: sched.mastered ? 'mastered' : 'learned',
+      self: true,
+      lastFail: false,
       srsLevel: sched.srsLevel,
-      ...(sched.nextReviewAt ? { nextReviewAt: sched.nextReviewAt } : {}),
+      nextReviewAt: sched.nextReviewAt, // 达顶清旧排期、非达顶排下次复习（与 onReproducePass/Fail 一致，spec §5.1）
       lastLang: lang,
     })
     setDoneKind('self-solved')
@@ -335,7 +314,7 @@ export default function ProblemView() {
   }
 
   // 只看题解不刷（Hard 等）：status=skipped，不进默写、不排期
-  // 显式清 nextReviewAt：从 pending-review 等带排期的状态转入 skipped 时，残留的复习日期必须抹掉
+  // 显式清 nextReviewAt：从 learned 等带排期的状态转入 skipped 时，残留的复习日期必须抹掉
   const skipProblem = () => {
     updateProblem(problem.id, { status: 'skipped', lastLang: lang, nextReviewAt: undefined })
     setDoneKind('skipped')
@@ -696,6 +675,14 @@ export default function ProblemView() {
                   <span className="text-sm font-bold">题目 · {problem.difficulty}</span>
                   <Badge variant="outline">{problem.pattern}</Badge>
                   <Badge variant="secondary">{STATUS_LABEL[problem.status]}</Badge>
+                  {problem.self && (
+                    <span title="我顺极了 —— 没看题解自己解出来的" className="inline-flex items-center text-amber-500">
+                      <Star className="size-3.5" fill="currentColor" />
+                    </span>
+                  )}
+                  {problem.lastFail && (
+                    <Badge variant="outline" className="text-amber-600 dark:text-amber-400" title="上次没默过">易错</Badge>
+                  )}
                   <a
                     href={leetcodeUrl(problem)}
                     target="_blank"
@@ -861,7 +848,7 @@ export default function ProblemView() {
                     <BookOpen className="size-4" /> 想不出，看题解
                   </Button>
                   <Button variant="outline" onClick={selfSolved} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
-                    <CheckCircle2 className="size-4" /> 自解通过
+                    <CheckCircle2 className="size-4" /> 没看题解，直接过了
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -926,14 +913,11 @@ export default function ProblemView() {
           {doneKind === 'self-solved' ? (
             <>
               <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
-              <h2 className="text-xl font-bold">自解通过，没看题解就拿下</h2>
-              {problem.status === 'mastered' ? (
+              <h2 className="text-xl font-bold">我顺极了！</h2>
+              <p className="text-sm text-muted-foreground">没看题解就拿下</p>
+              {problem.status === 'mastered' && (
                 <p className="text-sm text-muted-foreground">
-                  间隔走完，已 <strong className="text-foreground">掌握</strong> —— 不再排期复习
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  已排期 <strong className="text-foreground">{problem.nextReviewAt ?? '3 天后'}</strong> 复习
+                  间隔走完，<strong className="text-foreground">过关了</strong> —— 不再排期复习
                 </p>
               )}
               <Button asChild variant="outline" className="mx-auto">
@@ -956,7 +940,7 @@ export default function ProblemView() {
               <h2 className="text-xl font-bold">默写通过，这题才算真的会了</h2>
               {problem.status === 'mastered' ? (
                 <p className="text-sm text-muted-foreground">
-                  间隔走完，已 <strong className="text-foreground">掌握</strong> —— 不再排期复习
+                  间隔走完，<strong className="text-foreground">过关了</strong> —— 不再排期复习
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
