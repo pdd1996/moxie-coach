@@ -154,7 +154,7 @@ export const seedProblems: ProblemUserState[] = [
 /** 默认设置（对应 PRD 第 6 节 settings） */
 export const seedSettings: Settings = {
   ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' },
-  intervalsDays: [3, 7, 14],
+  intervalsDays: [3, 3, 3],
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'python',
   newPerDay: 3,
