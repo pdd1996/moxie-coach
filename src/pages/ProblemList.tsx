@@ -90,19 +90,72 @@ function ProblemRow({ p }: { p: Problem }) {
   )
 }
 
+type ProblemGroup = { stage: number; pattern: string; rows: Problem[] }
+
+function ProblemTable({
+  groups,
+  empty,
+  showStage,
+}: {
+  groups: ProblemGroup[]
+  empty: boolean
+  showStage: boolean
+}) {
+  return (
+    <div className="rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-14">题号</TableHead>
+            <TableHead>题目</TableHead>
+            <TableHead className="w-16">难度</TableHead>
+            <TableHead className="w-36">套路</TableHead>
+            <TableHead className="hidden md:table-cell">判断信号</TableHead>
+            <TableHead className="w-20">状态</TableHead>
+            <TableHead className="w-28 text-right">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {groups.map(({ stage, pattern, rows }) => (
+            <Fragment key={`${stage}:${pattern}`}>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableCell colSpan={7} className="py-1.5 text-xs font-medium text-muted-foreground">
+                  {showStage && `阶段${'一二三四'[stage - 1]} · `}
+                  {pattern} · {rows.length} 题
+                </TableCell>
+              </TableRow>
+              {rows.map((p) => (
+                <ProblemRow key={p.id} p={p} />
+              ))}
+            </Fragment>
+          ))}
+          {empty && (
+            <TableRow>
+              <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                没有匹配的题目
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 export default function ProblemList() {
   const problems = useProblems()
   const [q, setQ] = useState('')
   const [stage, setStage] = useState<string>('1')
 
+  // 搜索态全局匹配（跨阶段）；浏览态只看当前阶段
+  const searching = q.trim() !== ''
+
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()
-    return problems.filter(
-      (p) =>
-        String(p.stage) === stage &&
-        (!kw || p.title.toLowerCase().includes(kw) || String(p.id).includes(kw) || p.pattern.includes(kw)),
-    )
-  }, [problems, q, stage])
+    const match = (p: Problem) =>
+      !kw || p.title.toLowerCase().includes(kw) || String(p.id).includes(kw) || p.pattern.includes(kw)
+    return searching ? problems.filter(match) : problems.filter((p) => String(p.stage) === stage && match(p))
+  }, [problems, q, stage, searching])
 
   // 各阶段总题数（不受搜索影响）：切 Tab 时解释表格长短差异
   const stageCount = useMemo(() => {
@@ -111,18 +164,18 @@ export default function ProblemList() {
     return counts
   }, [problems])
 
-  // 阶段内再按套路分组（pattern 主名升序，组内按题号）
+  // 分组键带阶段：搜索态跨阶段时先按阶段升序、再按套路主名；浏览态单一阶段，等效于只按套路。组内按题号
   const grouped = useMemo(() => {
-    const groups = new Map<string, Problem[]>()
+    const groups = new Map<string, { stage: number; pattern: string; rows: Problem[] }>()
     for (const p of filtered) {
-      const key = p.pattern
-      const arr = groups.get(key)
-      if (arr) arr.push(p)
-      else groups.set(key, [p])
+      const key = `${p.stage}:${p.pattern}`
+      const g = groups.get(key)
+      if (g) g.rows.push(p)
+      else groups.set(key, { stage: p.stage, pattern: p.pattern, rows: [p] })
     }
-    return [...groups.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hans'))
-      .map(([pattern, rows]) => ({ pattern, rows: rows.sort((x, y) => x.id - y.id) }))
+    return [...groups.values()]
+      .sort((a, b) => a.stage - b.stage || a.pattern.localeCompare(b.pattern, 'zh-Hans'))
+      .map((g) => ({ ...g, rows: g.rows.sort((x, y) => x.id - y.id) }))
   }, [filtered])
 
   return (
@@ -138,60 +191,34 @@ export default function ProblemList() {
         </div>
       </div>
 
-      <Tabs value={stage} onValueChange={setStage}>
-        <TabsList className="flex-wrap">
-          {([1, 2, 3, 4] as Stage[]).map((s) => (
-            <TabsTrigger key={s} value={String(s)}>
-              阶段{'一二三四'[s - 1]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {searching ? (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            搜索 “{q.trim()}” · 共 {filtered.length} 题（跨阶段）
+          </p>
+          <ProblemTable groups={grouped} empty={filtered.length === 0} showStage />
+        </div>
+      ) : (
+        <Tabs value={stage} onValueChange={setStage}>
+          <TabsList className="flex-wrap">
+            {([1, 2, 3, 4] as Stage[]).map((s) => (
+              <TabsTrigger key={s} value={String(s)}>
+                阶段{'一二三四'[s - 1]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {([1, 2, 3, 4] as Stage[]).map((s) => (
-          <TabsContent key={s} value={String(s)} className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {STAGE_INFO[s].title} · {STAGE_INFO[s].theme} · {stageCount.get(String(s)) ?? 0} 题
-              {s === 2 && '（含多线程选做题）'}
-            </p>
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-14">题号</TableHead>
-                    <TableHead>题目</TableHead>
-                    <TableHead className="w-16">难度</TableHead>
-                    <TableHead className="w-36">套路</TableHead>
-                    <TableHead className="hidden md:table-cell">判断信号</TableHead>
-                    <TableHead className="w-20">状态</TableHead>
-                    <TableHead className="w-28 text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {grouped.map(({ pattern, rows }) => (
-                    <Fragment key={pattern}>
-                      <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        <TableCell colSpan={7} className="py-1.5 text-xs font-medium text-muted-foreground">
-                          {pattern} · {rows.length} 题
-                        </TableCell>
-                      </TableRow>
-                      {rows.map((p) => (
-                        <ProblemRow key={p.id} p={p} />
-                      ))}
-                    </Fragment>
-                  ))}
-                  {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                        没有匹配的题目
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </TabsContent>
-        ))}
-      </Tabs>
+          {([1, 2, 3, 4] as Stage[]).map((s) => (
+            <TabsContent key={s} value={String(s)} className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {STAGE_INFO[s].title} · {STAGE_INFO[s].theme} · {stageCount.get(String(s)) ?? 0} 题
+                {s === 2 && '（含多线程选做题）'}
+              </p>
+              <ProblemTable groups={grouped} empty={filtered.length === 0} showStage={false} />
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
     </div>
   )
 }
