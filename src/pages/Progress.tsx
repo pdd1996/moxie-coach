@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Flame, BookOpenCheck, PenLine, Lightbulb } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Heatmap } from '@/components/Heatmap'
@@ -17,14 +18,23 @@ const TONE_CLS: Record<Tone, { icon: string; chip: string; bar: string }> = {
   amber:   { icon: 'text-amber-500',   chip: 'bg-amber-500/10',   bar: '[&>div]:bg-amber-500'   },
 }
 
+const HEATMAP_RANGES = [
+  { key: '1m', label: '近 1 月', days: 30 },
+  { key: '3m', label: '近 3 月', days: 90 },
+] as const
+type HeatmapRange = (typeof HEATMAP_RANGES)[number]['key']
+
 export default function ProgressPage() {
   const problems = useProblems()
   const today = todayStr()
+  const [range, setRange] = useState<HeatmapRange>('3m')
+  const rangeDays = HEATMAP_RANGES.find((r) => r.key === range)!.days
+  const rangeLabel = HEATMAP_RANGES.find((r) => r.key === range)!.label
 
   const { stages, patterns, heatmap, kpis, heatmapTotal } = useMemo(() => {
     const stages = stageProgress(problems)
     const patterns = patternStats(problems)
-    const heatmap = heatmapData(problems, today)
+    const heatmap = heatmapData(problems, today, rangeDays)
     return {
       stages,
       patterns,
@@ -37,7 +47,7 @@ export default function ProgressPage() {
         selfRate: selfSolvedRate(problems),
       },
     }
-  }, [problems, today])
+  }, [problems, today, rangeDays])
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
@@ -129,11 +139,27 @@ export default function ProgressPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <CardTitle className="text-base">打卡热力图（近 17 周）</CardTitle>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              共 {heatmapTotal} 题 · 峰值 {Math.max(0, ...heatmap)}/天
-            </span>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <CardTitle className="text-base">打卡热力图（{rangeLabel}）</CardTitle>
+            <div className="flex items-center gap-3">
+              <div className="inline-flex rounded-lg bg-muted p-0.5" data-slot="button-group">
+                {HEATMAP_RANGES.map((r) => (
+                  <Button
+                    key={r.key}
+                    size="xs"
+                    variant="ghost"
+                    aria-pressed={range === r.key}
+                    onClick={() => setRange(r.key)}
+                    className="aria-pressed:bg-background aria-pressed:shadow-sm"
+                  >
+                    {r.label}
+                  </Button>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                共 {heatmapTotal} 题 · 峰值 {Math.max(0, ...heatmap)}/天
+              </span>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

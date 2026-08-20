@@ -14,14 +14,14 @@ export function Heatmap({ data }: { data: number[] }) {
   }
 
   return (
-    <div className="flex gap-[3px] overflow-x-auto pb-1">
+    <div className="flex gap-1.25 overflow-x-auto pb-1 w-full">
       {weeks.map((week, wi) => (
-        <div key={wi} className="flex flex-col gap-[3px]">
+        <div key={wi} className="flex flex-col gap-1.25 flex-1 min-w-0">
           {week.map((v, di) => (
             <div
               key={di}
               title={`${v} 题`}
-              className={cn('size-3 rounded-[3px]', level(v))}
+              className={cn('aspect-square w-full rounded-md', level(v))}
             />
           ))}
         </div>
