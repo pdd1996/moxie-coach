@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Download, Upload, Trash2, TriangleAlert } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,7 +7,13 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import { useTheme } from '@/lib/theme'
+import { useExportDb, useImportDb, useClearDb } from '@/lib/store'
+
+type Status = { kind: 'ok' | 'err'; msg: string } | null
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
@@ -15,6 +21,36 @@ export default function Settings() {
   const [baseUrl, setBaseUrl] = useState('https://api.deepseek.com')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('deepseek-chat')
+
+  const exportDb = useExportDb()
+  const importDb = useImportDb()
+  const clearDb = useClearDb()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<Status>(null)
+  const [clearOpen, setClearOpen] = useState(false)
+  const [clearText, setClearText] = useState('')
+
+  const run = async (fn: () => Promise<void>, okMsg: string) => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      await fn()
+      setStatus({ kind: 'ok', msg: okMsg })
+    } catch (e) {
+      setStatus({ kind: 'err', msg: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // 清空 value 以便能重复选同一文件
+    e.target.value = ''
+    void run(() => importDb(file), '已导入，题单已更新')
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
@@ -143,12 +179,85 @@ export default function Settings() {
             数据保存在 <code className="rounded bg-muted px-1 py-0.5 font-mono">data/db.json</code>，每日自动备份（保留 30 份）
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm"><Download className="size-4" /> 导出备份</Button>
-            <Button variant="outline" size="sm"><Upload className="size-4" /> 导入备份</Button>
-            <Button variant="destructive" size="sm"><Trash2 className="size-4" /> 清空全部数据</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => run(exportDb, '已导出 db.json')}
+            >
+              <Download className="size-4" /> 导出备份
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload className="size-4" /> 导入备份
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={busy}
+              onClick={() => { setClearText(''); setClearOpen(true) }}
+            >
+              <Trash2 className="size-4" /> 清空全部数据
+            </Button>
           </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={onImportFile}
+          />
+          {status && (
+            <p className={`text-xs ${status.kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+              {status.msg}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            导入会覆盖当前数据，请先导出备份；清空仅删题目进度，保留设置（API key 等）
+          </p>
         </CardContent>
       </Card>
+
+      {/* 清空全部数据二次确认 */}
+      <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>清空全部数据？</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            会清空所有题目的进度、历史、笔记、SRS 排期（设置与 API key 保留）。
+            建议先<strong>导出备份</strong>，导入可完整还原。
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="clearConfirm">输入「确认」以继续</Label>
+            <Input
+              id="clearConfirm"
+              value={clearText}
+              onChange={(e) => setClearText(e.target.value)}
+              placeholder="确认"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setClearOpen(false)}>取消</Button>
+            <Button
+              variant="destructive"
+              disabled={clearText !== '确认' || busy}
+              onClick={() => {
+                void run(async () => {
+                  await clearDb()
+                  setClearOpen(false)
+                }, '已清空全部题目，设置保留')
+              }}
+            >
+              清空
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
