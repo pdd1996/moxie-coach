@@ -2,7 +2,7 @@
 //   R1 重置复习中(未到期)题 → 跳题单 + db new + 字段清 + history/note/题面保留
 //   R2 自解题重置撤徽章   R3 易错题重置清 lastFail   R4 mastered 重置回可建议新题
 //   R5 取消不落库        R6 重置后重自解 → +3 天(验 srsLevel=undefined 修正)
-//   R7 从 done 屏重置    R8(已知限制)到期题落 reproduce 态无重置按钮
+//   R7 从 done 屏重置    R8 到期题落 reproduce 态可重置(不污染 history)
 // 运行：需 dev server，BASE=http://localhost:<port> node scripts/validate-reset.mjs
 import { chromium } from 'playwright'
 import { copyFileSync, existsSync, unlinkSync } from 'node:fs'
@@ -181,15 +181,26 @@ async function main() {
   ok('R7 done 重置后 status=new', p7.status === 'new', `status=${p7.status}`)
   ok('R7 done 重置后 self 清空', p7.self === undefined, `self=${p7.self}`)
 
-  // ===== R8(已知限制)到期题落 reproduce 态 → 无重置按钮 =====
-  console.log('== R8(已知限制)到期题落 reproduce 态 ==')
+  // ===== R8 到期题落 reproduce 态 → 可重置(不污染 history) =====
+  // 原已知限制:reproduce 态无重置按钮,用户得先「默写失败」混进 done 屏才能重置,
+  // 那次假失败会写进 history/置 lastFail,再被 reset 清掉 —— 为重置被迫污染历史。
+  // 现放开 reproduce 态重置:不用假失败就能「我不想复习了,重学」。
+  console.log('== R8 到期题落 reproduce 态可重置 ==')
   await putState({ status: 'learned', self: true, lastFail: false, srsLevel: 0, nextReviewAt: TODAY, lastLang: 'javascript' })
+  const histLenBefore = find((await dbGet()).problems, 88).history.length
   await page.goto(`${BASE}/problem/88`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(600)
-  const hasBtn = await page.locator('button:has-text("重置重学")').count()
   const isReproduce = await page.locator('text=默写模式 · 题解已收起').count() > 0
   ok('R8 到期题落 reproduce 态', isReproduce)
-  ok('R8 reproduce 态无重置按钮(已知限制)', hasBtn === 0, `按钮数=${hasBtn}`)
+  ok('R8 reproduce 态有重置按钮', await page.locator('button:has-text("重置重学")').count() === 1)
+  ok('R8 reproduce 态无编辑题目按钮(不泄露题解)', await page.locator('button:has-text("编辑题目")').count() === 0)
+  await doReset(page)
+  await page.waitForTimeout(FLUSH)
+  const p8 = find((await dbGet()).problems, 88)
+  ok('R8 status=new', p8.status === 'new', `status=${p8.status}`)
+  ok('R8 srsLevel 清空', p8.srsLevel === undefined, `srsLevel=${p8.srsLevel}`)
+  ok('R8 self 清空', p8.self === undefined, `self=${p8.self}`)
+  ok('R8 history 长度不变(无假失败脏记录)', p8.history.length === histLenBefore, `before=${histLenBefore} after=${p8.history.length}`)
 
   await browser.close()
   console.log(`\n${pass} passed, ${fail} failed`)

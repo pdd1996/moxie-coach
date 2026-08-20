@@ -481,6 +481,12 @@ export default function ProblemView() {
   const inFlow = phase === 'attempt' || phase === 'reproduce'
   // 可回贴题面板编辑的阶段：默写(reproduce)不开放，避免借机看题解
   const canEdit = phase === 'attempt' || phase === 'solution' || phase === 'done'
+  // 重置重学：默写态(reproduce)也放开（R8）。reset 不回贴题面板、不露题解，与 editProblem 解耦
+  // —— editProblem 仍在 reproduce 隐藏（它会回贴题面板泄露题解），reset 单独放开。
+  // 解痛点：到期复习题要重置时，原先 reproduce 态无按钮，用户得先「默写失败」混进 done 屏才能重置，
+  // 那次假失败会写进 history、置 lastFail，再被 reset 清掉 —— 为了够到重置被迫污染历史。
+  // reproduce 态本身 status 非 new（能进 reproduce 必是复习/首次默写），status!=='new' 恒成立，留着兜底。
+  const canReset = (canEdit || phase === 'reproduce') && problem.status !== 'new'
   // 模板默认只显示用户默认语言，另一种折叠（多数人只用一种）
   const primaryLang = settings.defaultLang
   const otherLang: Lang = primaryLang === 'python' ? 'javascript' : 'python'
@@ -505,7 +511,7 @@ export default function ProblemView() {
               <PenLine className="size-3.5" /> 编辑题目
             </Button>
           )}
-          {canEdit && problem.status !== 'new' && (
+          {canReset && (
             <Button
               variant="ghost"
               size="sm"
