@@ -175,7 +175,7 @@ export default function Settings() {
         onReset={resetRhythm}
       >
         <div className="flex justify-start gap-16">
-          <div className="space-y-1.5 flex-1 min-w-0 sm:max-w-44">
+          <div className="space-y-3 flex-1 min-w-0 sm:max-w-44">
             <Label>每天新练</Label>
             <Stepper
               ariaLabel="每天新练题数"
@@ -187,7 +187,7 @@ export default function Settings() {
             />
             <p className="text-xs text-muted-foreground">仪表盘「建议新题」一次列几道</p>
           </div>
-          <div className="space-y-1.5 flex-1 min-w-0 sm:max-w-44">
+          <div className="space-y-3 flex-1 min-w-0 sm:max-w-44">
             <Label>每天复习</Label>
             <Stepper
               ariaLabel="每天复习上限"
@@ -203,11 +203,11 @@ export default function Settings() {
 
         <Separator />
 
-        <div className="space-y-1.5">
+        <div className="space-y-5">
           <Label>刷题时长（分钟）</Label>
           <div className="flex justify-evenly gap-4">
             {LEVELS.map(({ k, label }) => (
-              <div key={k} className="space-y-1 flex-1 min-w-0 sm:max-w-44">
+              <div key={k} className="space-y-1.5 flex-1 min-w-0 sm:max-w-44">
                 <div className="text-xs text-muted-foreground">{label}</div>
                 <Stepper
                   ariaLabel={`${label} 时长`}
@@ -224,11 +224,11 @@ export default function Settings() {
 
         <Separator />
 
-        <div className="space-y-1.5">
+        <div className="space-y-5">
           <Label>复习间隔（天）</Label>
           <div className="flex justify-evenly gap-4">
             {settings.intervalsDays.map((d, i) => (
-              <div key={i} className="space-y-1 flex-1 min-w-0 sm:max-w-44">
+              <div key={i} className="space-y-1.5 flex-1 min-w-0 sm:max-w-44">
                 <div className="text-xs text-muted-foreground">第 {i + 1} 次复习</div>
                 <Stepper
                   ariaLabel={`第 ${i + 1} 次复习间隔`}
