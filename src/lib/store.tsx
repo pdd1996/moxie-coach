@@ -2,6 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type { Problem, ProblemMeta, ProblemUserState, Settings } from '@/lib/types'
+import { migrateUserState } from '@/lib/srs'
 import { seedSettings } from '@/data/seed'
 import problemsMetaJson from '@/data/problems.json'
 
@@ -130,11 +131,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
       .then((db) => {
         if (cancelled) return
+        // 状态模型迁移（重构 spec §7）：旧 db 残留 self-solved/pending-review/reviewing
+        // 三个已退役状态，加载时迁移成 learned/mastered + self/lastFail。幂等。
+        const intervals = db.settings?.intervalsDays ?? seedSettings.intervalsDays
         const map: Record<string, ProblemUserState> = {}
-        for (const p of db.problems ?? []) map[String(p.id)] = p
+        let migrated = false
+        for (const p of db.problems ?? []) {
+          const st = p.status as string
+          if (st === 'self-solved' || st === 'pending-review' || st === 'reviewing') migrated = true
+          map[String(p.id)] = migrateUserState(p, intervals)
+        }
         setUserById(map)
         setSettings(db.settings ?? seedSettings)
         setReady(true)
+        // 若发生过迁移，顺手存一次让 db.json 落成新形状（§7.2）；1s debounce 后 ref 已是迁移值
+        if (migrated) scheduleSave()
       })
       .catch((err) => {
         // 拉取失败也放行，避免白屏；后续写入会再次尝试
@@ -144,6 +155,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 防抖丢数据窗口（C）：1s 内刷新/关页会丢最后一次编辑。

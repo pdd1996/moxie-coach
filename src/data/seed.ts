@@ -81,7 +81,7 @@ export const seedProblems: ProblemUserState[] = [
   // ===== 阶段一：线性结构 =====
   {
     id: 88,
-    status: 'pending-review', statement: STATEMENT_88,
+    status: 'learned', lastFail: true, statement: STATEMENT_88,
     skeleton: { python: SKELETON_PY, javascript: SKELETON_JS },
     solution: SOLUTION_88,
     entry: {
@@ -106,7 +106,7 @@ export const seedProblems: ProblemUserState[] = [
   },
   { id: 27, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-20', srsLevel: 1, note: '快指针找值、慢指针收留' },
   { id: 26, status: 'mastered', testCases: [], history: [], srsLevel: 3 },
-  { id: 1, status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-21', lastLang: 'python' },
+  { id: 1, status: 'learned', self: true, testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-21', lastLang: 'python' },
   { id: 242, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1, note: '26 个字母计数数组就够，不用真哈希' },
   { id: 125, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-22', srsLevel: 1 },
   { id: 169, status: 'new', testCases: [], history: [] },
@@ -123,15 +123,15 @@ export const seedProblems: ProblemUserState[] = [
   { id: 19, status: 'new', testCases: [], history: [] },
   { id: 155, status: 'new', testCases: [], history: [] },
   { id: 104, status: 'learned', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
-  { id: 98, status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
+  { id: 98, status: 'learned', lastFail: true, testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
   { id: 102, status: 'new', testCases: [], history: [] },
   { id: 236, status: 'new', testCases: [], history: [] },
 
   // ===== 阶段三：二分 + 图 + 堆 =====
-  { id: 704, status: 'self-solved', testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-20', lastLang: 'python' },
+  { id: 704, status: 'learned', self: true, testCases: [], history: [], srsLevel: 0, nextReviewAt: '2026-08-20', lastLang: 'python' },
   { id: 74, status: 'new', testCases: [], history: [] },
   { id: 33, status: 'new', testCases: [], history: [] },
-  { id: 200, status: 'pending-review', testCases: [], history: [], nextReviewAt: yesterday, srsLevel: 0, note: '访问过的格子要标记，否则死循环' },
+  { id: 200, status: 'learned', lastFail: true, testCases: [], history: [], nextReviewAt: yesterday, srsLevel: 0, note: '访问过的格子要标记，否则死循环' },
   { id: 207, status: 'new', testCases: [], history: [] },
   { id: 347, status: 'new', testCases: [], history: [] },
   { id: 215, status: 'new', testCases: [], history: [] },
@@ -143,7 +143,7 @@ export const seedProblems: ProblemUserState[] = [
   { id: 55, status: 'new', testCases: [], history: [] },
   { id: 300, status: 'new', testCases: [], history: [] },
   { id: 322, status: 'new', testCases: [], history: [] },
-  { id: 78, status: 'pending-review', testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
+  { id: 78, status: 'learned', lastFail: true, testCases: [], history: [], nextReviewAt: today, srsLevel: 0 },
   { id: 46, status: 'learned', testCases: [], history: [], nextReviewAt: '2026-08-21', srsLevel: 1 },
   { id: 22, status: 'new', testCases: [], history: [] },
 

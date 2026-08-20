@@ -6,14 +6,11 @@ export type Difficulty = 'Easy' | 'Medium' | 'Hard'
 export type Stage = 1 | 2 | 3 | 4
 
 export type ProblemStatus =
-  | 'new' // 未做过
+  | 'new' // 未开始
   | 'in-progress' // 进行中
-  | 'self-solved' // 自解通过（没看题解）
-  | 'learned' // 看题解后默写通过
-  | 'pending-review' // 默写失败 / 待复习（v1.2 改名：原 learning，消除与 learned 的一字母混淆）
-  | 'reviewing' // 复习中
-  | 'mastered' // 掌握（SRS 走完）
-  | 'skipped' // 只看题解不刷（Hard 等）
+  | 'learned' // 待复习（SRS 排期中：含刚通过/循环中/上轮挂科，由 srsLevel + lastFail 细分）
+  | 'mastered' // 过关了（SRS 走完，不再排期）
+  | 'skipped' // 没招了（只看题解不刷）
 
 export interface ProblemMeta {
   id: number // 题号
@@ -51,6 +48,8 @@ export type Entry = { python?: EntrySpec; javascript?: EntrySpec }
 export interface ProblemUserState {
   id: number
   status: ProblemStatus
+  self?: boolean // 自解徽章：首次 attempt 通过且没看题解时置 true，历史荣誉，不因后续失败撤销（见重构 spec §8）
+  lastFail?: boolean // 上轮复习/默写挂科（history 尾部的缓存），下次通过即清 false
   history: AttemptHistory[]
   note?: string
   hintCard?: string
@@ -100,14 +99,11 @@ export interface Settings {
 }
 
 export const STATUS_LABEL: Record<ProblemStatus, string> = {
-  new: '未做',
+  new: '未开始',
   'in-progress': '进行中',
-  'self-solved': '自解',
-  learned: '已默写',
-  'pending-review': '待复习',
-  reviewing: '复习中',
-  mastered: '已掌握',
-  skipped: '已跳过',
+  learned: '待复习',
+  mastered: '过关了',
+  skipped: '没招了',
 }
 
 export const STAGE_INFO: Record<Stage, { title: string; theme: string }> = {
