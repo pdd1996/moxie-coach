@@ -5,21 +5,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { useProblems } from '@/lib/store'
-import { reviewQueue, suggestedNew, overdueDays, todayStr, streakDays } from '@/lib/srs'
+import { useProblems, useSettings } from '@/lib/store'
+import { reviewQueue, suggestedNewList, overdueDays, todayStr, streakDays } from '@/lib/srs'
 import { greeting, dateLabel, careerWeek, stageLabel } from '@/lib/greeting'
 
 export default function Dashboard() {
   const problems = useProblems()
+  const settings = useSettings()
   const today = todayStr()
 
   const { queue, suggested, streak } = useMemo(() => {
     return {
       queue: reviewQueue(problems, today),
-      suggested: suggestedNew(problems),
+      suggested: suggestedNewList(problems, settings.newPerDay),
       streak: streakDays(problems, today),
     }
-  }, [problems, today])
+  }, [problems, today, settings.newPerDay])
+
+  // 复习软上限：队列按逾期最久优先（reviewQueue 已排好），只显示前 N 道；
+  // 超出的今天先不练，但仍在 SRS 排期里，明天自然还在（不动 nextReviewAt）。
+  const visibleQueue = queue.slice(0, settings.reviewPerDay)
+  const hiddenCount = queue.length - visibleQueue.length
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
@@ -45,11 +51,13 @@ export default function Dashboard() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             今日任务
-            <Badge variant="secondary">{queue.length} 道复习</Badge>
+            <Badge variant="secondary">
+              {hiddenCount > 0 ? `${visibleQueue.length} / ${queue.length}` : queue.length} 道复习
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {queue.map((p) => {
+          {visibleQueue.map((p) => {
             const days = overdueDays(p, today)
             return (
               <Link
@@ -91,28 +99,42 @@ export default function Dashboard() {
               </Link>
             )
           })}
+          {hiddenCount > 0 && (
+            <div className="rounded-lg border border-dashed px-3 py-2.5 text-center text-xs text-muted-foreground">
+              还有 {hiddenCount} 道到期，今天先放一放 —— 明天还在，逾期最久的已排在上面
+            </div>
+          )}
           {queue.length === 0 && (
             <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
               今天没有到期的复习 🎉 去做一道新题保持手感吧
             </div>
           )}
-          {suggested && <Separator className="my-3" />}
-          {suggested && (
-            <div className="flex items-center justify-between rounded-lg border border-dashed border-emerald-400 bg-emerald-500/5 px-3 py-2.5">
-              <div className="flex min-w-0 items-center gap-3">
-                <Lightbulb className="size-4 shrink-0 text-emerald-600" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">
-                    建议新题：#{suggested.id} {suggested.title}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    信号：{suggested.signal} · {suggested.pattern}
-                  </div>
-                </div>
+          {suggested.length > 0 && <Separator className="my-3" />}
+          {suggested.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+                <Lightbulb className="size-3.5 text-emerald-600" />
+                建议新题 · 今天开 {suggested.length} 道
               </div>
-              <Button asChild size="sm" variant="outline" className="shrink-0">
-                <Link to={`/problem/${suggested.id}`}>开始</Link>
-              </Button>
+              {suggested.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded-lg border border-dashed border-emerald-400 bg-emerald-500/5 px-3 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="font-mono text-sm text-muted-foreground">#{p.id}</span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{p.title}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        信号：{p.signal} · {p.pattern}
+                      </div>
+                    </div>
+                  </div>
+                  <Button asChild size="sm" variant="outline" className="shrink-0">
+                    <Link to={`/problem/${p.id}`}>开始</Link>
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
