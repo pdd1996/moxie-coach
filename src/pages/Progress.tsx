@@ -21,13 +21,14 @@ const TONE_CLS: Record<Tone, { icon: string; chip: string; bar: string }> = {
 const HEATMAP_RANGES = [
   { key: '1m', label: '近 1 月', days: 30 },
   { key: '3m', label: '近 3 月', days: 90 },
+  { key: '6m', label: '近半年', days: 183 },
 ] as const
 type HeatmapRange = (typeof HEATMAP_RANGES)[number]['key']
 
 export default function ProgressPage() {
   const problems = useProblems()
   const today = todayStr()
-  const [range, setRange] = useState<HeatmapRange>('3m')
+  const [range, setRange] = useState<HeatmapRange>('6m')
   const rangeDays = HEATMAP_RANGES.find((r) => r.key === range)!.days
   const rangeLabel = HEATMAP_RANGES.find((r) => r.key === range)!.label
 

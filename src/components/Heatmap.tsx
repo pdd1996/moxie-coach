@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-/** 打卡热力图：17 周网格，GitHub 风格 */
+/** 打卡热力图：固定小格、按周分列，GitHub 风格 */
 export function Heatmap({ data }: { data: number[] }) {
   const weeks: number[][] = []
   for (let i = 0; i < data.length; i += 7) weeks.push(data.slice(i, i + 7))
@@ -14,14 +14,14 @@ export function Heatmap({ data }: { data: number[] }) {
   }
 
   return (
-    <div className="flex gap-1.25 overflow-x-auto pb-1 w-full">
+    <div className="flex w-fit max-w-full gap-1 overflow-x-auto pb-1">
       {weeks.map((week, wi) => (
-        <div key={wi} className="flex flex-col gap-1.25 flex-1 min-w-0">
+        <div key={wi} className="flex flex-col gap-1">
           {week.map((v, di) => (
             <div
               key={di}
               title={`${v} 题`}
-              className={cn('aspect-square w-full rounded-md', level(v))}
+              className={cn('size-3 rounded-[3px]', level(v))}
             />
           ))}
         </div>
