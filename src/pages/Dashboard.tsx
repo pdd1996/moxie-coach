@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Clock, Flame, Lightbulb, Star, StickyNote } from 'lucide-react'
+import { ArrowRight, Flame, Lightbulb, Star, StickyNote } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,20 +8,18 @@ import { Separator } from '@/components/ui/separator'
 import { useProblems, useSettings } from '@/lib/store'
 import { reviewQueue, suggestedNewList, overdueDays, todayStr, streakDays } from '@/lib/srs'
 import { greeting, dateLabel, careerWeek, stageLabel } from '@/lib/greeting'
-import { cn } from '@/lib/utils'
 
 export default function Dashboard() {
   const problems = useProblems()
   const settings = useSettings()
   const today = todayStr()
 
-  const { queue, suggested, streak, overdueCount } = useMemo(() => {
+  const { queue, suggested, streak } = useMemo(() => {
     const queue = reviewQueue(problems, today)
     return {
       queue,
       suggested: suggestedNewList(problems, settings.newPerDay),
       streak: streakDays(problems, today),
-      overdueCount: queue.filter((p) => overdueDays(p, today) > 0).length,
     }
   }, [problems, today, settings.newPerDay])
 
@@ -60,23 +58,6 @@ export default function Dashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {/* 逾期总览：一句话说清今天为什么要做这几道 */}
-          {queue.length > 0 && (
-            <div
-              className={cn(
-                'flex items-center gap-2 rounded-lg px-3 py-2 text-xs',
-                overdueCount > 0
-                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                  : 'bg-muted text-muted-foreground',
-              )}
-            >
-              <Clock className={cn('size-3.5 shrink-0', overdueCount > 0 && 'text-red-500')} />
-              {overdueCount > 0
-                ? `${overdueCount} 道已逾期 —— 先把逾期最久的捞回来`
-                : `都在排期里，${queue.length} 道按序复习`}
-            </div>
-          )}
-
           {visibleQueue.map((p) => {
             const days = overdueDays(p, today)
             return (
@@ -128,11 +109,6 @@ export default function Dashboard() {
               </Link>
             )
           })}
-          {hiddenCount > 0 && (
-            <div className="rounded-lg border border-dashed px-3 py-2.5 text-center text-xs text-muted-foreground">
-              还有 {hiddenCount} 道到期，今天先放一放 —— 明天还在，逾期最久的已排在上面
-            </div>
-          )}
           {queue.length === 0 && (
             <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
               今天没有到期的复习 🎉 去做一道新题保持手感吧
