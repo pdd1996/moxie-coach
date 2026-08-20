@@ -96,6 +96,8 @@ export interface Settings {
   intervalsDays: number[] // SRS 间隔序列，如 [3, 7, 14]
   timeLimitMin: { easy: number; medium: number; hard: number }
   defaultLang: Lang // 新题/无 lastLang 时的默认语言
+  newPerDay: number // 每日建议新题数（Dashboard 一次推荐几道新题），默认 3
+  reviewPerDay: number // 每日复习上限：Dashboard 只显示前 N 道（逾期最久优先），默认 5
 }
 
 export const STATUS_LABEL: Record<ProblemStatus, string> = {

@@ -43,15 +43,30 @@ export function overdueDays(p: Problem, today = todayStr()): number {
 }
 
 /**
- * 建议新题：阶段 1→4 扫，第一个仍含 `new && !optional` 的阶段 → 取该阶段第一道 new。
- * 「阶段一未做完前不跨阶段」= 不跳到下一阶段去建议，直到本阶段没有 new。
+ * 建议新题列表：阶段 1→4 依次扫，每个阶段内按题单顺序收 `new && !optional` 的题，
+ * 收满 n 道为止。「阶段一未做完前不跨阶段」= 先把当前阶段的 new 收完才碰下一阶段。
+ * n<=0 返回空数组。
+ */
+export function suggestedNewList(problems: Problem[], n: number): Problem[] {
+  if (n <= 0) return []
+  const out: Problem[] = []
+  for (const s of [1, 2, 3, 4] as Stage[]) {
+    for (const p of problems) {
+      if (p.stage === s && !p.optional && p.status === 'new') {
+        out.push(p)
+        if (out.length >= n) return out
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 建议新题（单道）：suggestedNewList 的 n=1 包装，取第一道建议新题。
+ * 保留旧签名供只需「下一道」的调用方使用。
  */
 export function suggestedNew(problems: Problem[]): Problem | undefined {
-  for (const s of [1, 2, 3, 4] as Stage[]) {
-    const first = problems.find((p) => p.stage === s && !p.optional && p.status === 'new')
-    if (first) return first
-  }
-  return undefined
+  return suggestedNewList(problems, 1)[0]
 }
 
 /** 各阶段进度（done / total，不含 optional） */

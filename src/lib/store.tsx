@@ -143,7 +143,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       map[String(p.id)] = hydrateProblem(p, intervals)
     }
     setUserById(map)
-    setSettings(db.settings ?? seedSettings)
+    // 规范化 settings：旧 db 缺新字段（如 newPerDay）或字段残缺时，用 seed 兜底补齐，
+    // 避免运行期读到 undefined。各字段分别 overlay，用户已存的值不被种子覆盖。
+    const s = db.settings ?? {}
+    const norm: Settings = {
+      ai: { ...seedSettings.ai, ...(s.ai ?? {}) },
+      intervalsDays: intervals,
+      timeLimitMin: { ...seedSettings.timeLimitMin, ...(s.timeLimitMin ?? {}) },
+      defaultLang: s.defaultLang ?? seedSettings.defaultLang,
+      newPerDay: typeof s.newPerDay === 'number' && s.newPerDay > 0 ? s.newPerDay : seedSettings.newPerDay,
+      reviewPerDay: typeof s.reviewPerDay === 'number' && s.reviewPerDay > 0 ? s.reviewPerDay : seedSettings.reviewPerDay,
+    }
+    setSettings(norm)
     // 清掉任何待写与在飞对旧内存的引用；版本号 +1 让遗留 persist 回调的 version 比对失败
     dirty.current = false
     if (saveTimer.current != null) {

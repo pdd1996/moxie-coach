@@ -157,4 +157,6 @@ export const seedSettings: Settings = {
   intervalsDays: [3, 7, 14],
   timeLimitMin: { easy: 15, medium: 25, hard: 25 },
   defaultLang: 'python',
+  newPerDay: 3,
+  reviewPerDay: 5,
 }
