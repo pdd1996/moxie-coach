@@ -104,6 +104,13 @@ export default function ProblemList() {
     )
   }, [problems, q, stage])
 
+  // 各阶段总题数（不受搜索影响）：切 Tab 时解释表格长短差异
+  const stageCount = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of problems) counts.set(String(p.stage), (counts.get(String(p.stage)) ?? 0) + 1)
+    return counts
+  }, [problems])
+
   // 阶段内再按套路分组（pattern 主名升序，组内按题号）
   const grouped = useMemo(() => {
     const groups = new Map<string, Problem[]>()
@@ -143,7 +150,7 @@ export default function ProblemList() {
         {([1, 2, 3, 4] as Stage[]).map((s) => (
           <TabsContent key={s} value={String(s)} className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {STAGE_INFO[s].title} · {STAGE_INFO[s].theme}
+              {STAGE_INFO[s].title} · {STAGE_INFO[s].theme} · {stageCount.get(String(s)) ?? 0} 题
               {s === 2 && '（含多线程选做题）'}
             </p>
             <div className="rounded-lg border">
