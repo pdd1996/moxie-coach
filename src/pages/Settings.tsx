@@ -174,7 +174,7 @@ export default function Settings() {
         description="复习优先，新题按节奏来；改完实时影响仪表盘推荐数量。"
         onReset={resetRhythm}
       >
-        <div className="flex justify-evenly gap-4">
+        <div className="flex justify-start gap-16">
           <div className="space-y-1.5 flex-1 min-w-0 sm:max-w-44">
             <Label>每天新练</Label>
             <Stepper
