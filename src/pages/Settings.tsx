@@ -178,31 +178,27 @@ export default function Settings() {
         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>每天新练</Label>
-            <div className="flex items-center gap-2">
-              <Stepper
-                ariaLabel="每天新练题数"
-                value={settings.newPerDay}
-                onChange={(v) => updateSettings({ newPerDay: v })}
-                min={1}
-                max={20}
-                unit="道"
-              />
-              <span className="text-xs text-muted-foreground">仪表盘「建议新题」一次列几道</span>
-            </div>
+            <Stepper
+              ariaLabel="每天新练题数"
+              value={settings.newPerDay}
+              onChange={(v) => updateSettings({ newPerDay: v })}
+              min={1}
+              max={20}
+              unit="道"
+            />
+            <p className="text-xs text-muted-foreground">仪表盘「建议新题」一次列几道</p>
           </div>
           <div className="space-y-1.5">
             <Label>每天复习</Label>
-            <div className="flex items-center gap-2">
-              <Stepper
-                ariaLabel="每天复习上限"
-                value={settings.reviewPerDay}
-                onChange={(v) => updateSettings({ reviewPerDay: v })}
-                min={1}
-                max={50}
-                unit="道"
-              />
-              <span className="text-xs text-muted-foreground">逾期最久优先，超出的明天自然还在</span>
-            </div>
+            <Stepper
+              ariaLabel="每天复习上限"
+              value={settings.reviewPerDay}
+              onChange={(v) => updateSettings({ reviewPerDay: v })}
+              min={1}
+              max={50}
+              unit="道"
+            />
+            <p className="text-xs text-muted-foreground">逾期最久优先，超出的明天自然还在</p>
           </div>
         </div>
 
@@ -247,7 +243,7 @@ export default function Settings() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            走完所有间隔 → 标记为「过关了」。3 天后还记得，才进入长期记忆（艾宾浩斯）。
+            三等分间隔（任一调整三者同步）。走完所有间隔 → 标记为「过关了」。过了间隔还记得，才进入长期记忆（艾宾浩斯）。
           </p>
         </div>
       </SectionCard>
