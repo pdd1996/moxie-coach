@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft, BookOpen, CheckCircle2, Eye, EyeOff, ExternalLink,
-  Lightbulb, Maximize2, Minimize2, PenLine, Play, Sparkles, Star, Upload, XCircle,
+  Lightbulb, Maximize2, Minimize2, PenLine, Play, RotateCcw, Sparkles, Star, Upload, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,6 +37,8 @@ export default function ProblemView() {
   const problem = useProblem(Number(id))
   const updateProblem = useUpdateProblem()
   const settings = useSettings()
+  // 重置本题 SRS 后跳回题单（重置=管理动作,不就地开刷,见 resetSrs 注释）
+  const navigate = useNavigate()
   // 题库合法题号集合：批量导入时先校验再计数/落库（store 会忽略不存在的题，但计数不能虚高）
   const allProblems = useProblems()
   const validIds = useMemo(() => new Set(allProblems.map((p) => p.id)), [allProblems])
@@ -71,6 +73,8 @@ export default function ProblemView() {
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState(problem?.note ?? '')
   const [noteOutcome, setNoteOutcome] = useState<'pass' | 'fail'>('pass')
+  // 重置本题 SRS 确认弹窗（S6-F6）
+  const [resetOpen, setResetOpen] = useState(false)
   const [zen, setZen] = useState(false)
   const [zenStatementOpen, setZenStatementOpen] = useState(false)
   const [timeUpMsg, setTimeUpMsg] = useState<string | null>(null)
@@ -321,6 +325,24 @@ export default function ProblemView() {
     setPhase('done')
   }
 
+  // 重置本题 SRS（重构 spec §6.8 + S6-F6）：打回未开始重学。
+  // 题面/模板/题解/用例/笔记/历史/lastLang 保留（重学≠抹除历史）；
+  // SRS 排期、自解徽章、挂科标清空。srsLevel 清 undefined 而非 0——passSchedule 里
+  // (level ?? -1)+1：undefined → 首通过得 0 排 +3 天；0 → 得 1 排 +7 天，会跳过首复习。
+  // 重置后跳回题单而非就地进 attempt：落地刷题流会被「attempt 置 in-progress」effect
+  // 立刻翻成进行中，'未开始' 就白打了；回列表让 status=new 真正落库，用户自己点开重学。
+  const resetSrs = () => {
+    updateProblem(problem.id, {
+      status: 'new',
+      srsLevel: undefined,
+      nextReviewAt: undefined,
+      self: undefined,
+      lastFail: undefined,
+    })
+    setResetOpen(false)
+    navigate('/problems')
+  }
+
   // 贴题保存（S2-F2）：对已粘贴的每种语言 skeleton 分别解析 entry，按语言分存；
   // 连同题面/模板/题解/用例一次性落库，然后进尝试阶段。
   const savePaste = () => {
@@ -481,6 +503,16 @@ export default function ProblemView() {
           {canEdit && (
             <Button variant="ghost" size="sm" onClick={editProblem} title="回到贴题面板编辑题面/模板/用例">
               <PenLine className="size-3.5" /> 编辑题目
+            </Button>
+          )}
+          {canEdit && problem.status !== 'new' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setResetOpen(true)}
+              title="清空 SRS 排期与自解徽章，打回未开始重学"
+            >
+              <RotateCcw className="size-3.5" /> 重置重学
             </Button>
           )}
           {inFlow && (
@@ -1065,6 +1097,24 @@ export default function ProblemView() {
           <DialogFooter>
             <Button variant="ghost" onClick={skipNote}>先跳过</Button>
             <Button onClick={saveNote}>保存笔记</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 重置本题 SRS 确认弹窗（S6-F6）：打回未开始重学，题面/笔记/历史保留 */}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>重置本题，从头重学？</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            会清空 SRS 排期、自解徽章 ⭐、易错标，把题打回<strong>未开始</strong>。
+            题面 / 模板 / 题解 / 用例 / 笔记 / 历史记录都保留 —— 重学不是抹除过去。
+            重置后会回到题单，你随时可以点开重新开始。
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setResetOpen(false)}>取消</Button>
+            <Button variant="destructive" onClick={resetSrs}>重置</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
