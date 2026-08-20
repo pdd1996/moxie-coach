@@ -37,10 +37,10 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      {/* 侧边栏 */}
+      {/* 侧边栏:固定在视口,内容区独立滚动 */}
       <aside
         className={cn(
-          'flex shrink-0 flex-col items-center gap-1 border-r bg-card py-4 transition-[width] duration-200 ease-out md:items-stretch md:px-3',
+          'sticky top-0 flex h-screen shrink-0 flex-col items-center gap-1 overflow-y-auto border-r bg-card py-4 transition-[width] duration-200 ease-out md:items-stretch md:px-3',
           collapsed ? 'w-16 md:w-16' : 'w-16 md:w-60',
         )}
       >
