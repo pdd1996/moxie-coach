@@ -26,12 +26,38 @@ function todayStamp(d = new Date()): string {
   return `${y}${m}${day}`
 }
 
-/** 写临时文件再 rename，保证中途断电不留半截文件（同分区 rename 原子） */
+/**
+ * 写临时文件再 rename，保证中途断电不留半截文件（同分区 rename 原子）。
+ *
+ * tmp 名带 pid + 时间戳 + 随机串：两个并发 PUT 不再抢同一个 .tmp
+ * （旧实现固定 `${filePath}.tmp`，并发 PUT 会互相覆盖对方的 tmp 再 rename，串数据）。
+ * rename 对 Windows 占用类错误（EPERM/EBUSY/EACCES，目标被并发 reader 如 maybeBackup
+ * 的 copyFile 短暂占用时抛）做有限退避重试——rename 本身原子，重试只是等占用方释放，
+ * 不会写出半截文件。非占用类错误不重试，清理 tmp 后直接抛。
+ */
 async function writeAtomic(filePath: string, data: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const tmp = `${filePath}.tmp`
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`
   await fs.writeFile(tmp, data, 'utf8')
-  await fs.rename(tmp, filePath)
+  const RETRIES = 5
+  let lastErr: unknown
+  for (let i = 0; i < RETRIES; i++) {
+    try {
+      await fs.rename(tmp, filePath)
+      return
+    } catch (err) {
+      lastErr = err
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') {
+        await fs.unlink(tmp).catch(() => {})
+        throw err
+      }
+      // 20/40/60/80/100ms 退避，等并发 reader 释放目标句柄
+      await new Promise((r) => setTimeout(r, 20 * (i + 1)))
+    }
+  }
+  await fs.unlink(tmp).catch(() => {})
+  throw lastErr
 }
 
 /** 校验是合法 db 结构（顶层有 problems 数组 + settings 对象，与 S9-F9 导入校验对齐） */
