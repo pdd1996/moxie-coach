@@ -155,8 +155,8 @@ export const seedProblems: ProblemUserState[] = [
 export const seedSettings: Settings = {
   ai: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' },
   intervalsDays: [3, 7, 14],
-  timeLimitMin: { easy: 15, medium: 25, hard: 25 },
+  timeLimitMin: { easy: 15, medium: 20, hard: 25 },
   defaultLang: 'python',
-  newPerDay: 3,
-  reviewPerDay: 5,
+  newPerDay: 2,
+  reviewPerDay: 2,
 }
