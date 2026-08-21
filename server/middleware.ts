@@ -216,6 +216,161 @@ export function pyodideStatic(): Plugin {
   }
 }
 
+// ===== S7-F7：AI 教练代理中间件 =====
+// 挂 POST /ai-api/chat/completions，转发到 settings.ai.baseUrl（OpenAI 兼容协议，默认 DeepSeek）。
+// key/model/baseUrl 由服务端每次请求现读 data/db.json 合并，前端请求体只带 messages 等参数、
+// 不携带 key（PRD：前端只依赖 /api/db 与 /ai-api 两个接口）。现读而非缓存：设置页改动有 1s
+// 防抖落盘，窗口极小且 db.json 只有几 KB。日志与错误信息不回显 key。
+
+const AI_TIMEOUT_MS = 180_000
+
+/** db.json 里 settings.ai 的最小形状（不从 src/lib/types import，见文件头的跨项目隔离说明） */
+interface AiConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
+async function readAiConfig(dataDir: string): Promise<AiConfig | null> {
+  try {
+    const raw = await fs.readFile(path.join(dataDir, 'db.json'), 'utf8')
+    const db = JSON.parse(raw) as { settings?: { ai?: Record<string, unknown> } }
+    const ai = db.settings?.ai
+    if (typeof ai !== 'object' || ai === null) return null
+    return {
+      baseUrl: typeof ai.baseUrl === 'string' ? ai.baseUrl : '',
+      apiKey: typeof ai.apiKey === 'string' ? ai.apiKey : '',
+      model: typeof ai.model === 'string' ? ai.model : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+export function aiApi(): Plugin {
+  return {
+    name: 'moxie-ai-proxy',
+    configureServer(server) {
+      const dataDir = path.resolve(server.config.root, 'data')
+      server.middlewares.use('/ai-api/chat/completions', async (req, res) => {
+        // 客户端断开 / 120s 超时统一走 AbortController：上游 fetch 与流式回传共用一个信号
+        const ac = new AbortController()
+        res.on('close', () => {
+          if (!res.writableEnded) ac.abort()
+        })
+        const timeout = setTimeout(() => ac.abort(), AI_TIMEOUT_MS)
+        try {
+          if (req.method !== 'POST') {
+            res.statusCode = 405
+            res.setHeader('Allow', 'POST')
+            res.end('method not allowed')
+            return
+          }
+          const ai = await readAiConfig(dataDir)
+          if (!ai || !ai.apiKey.trim() || !ai.baseUrl.trim() || !ai.model.trim()) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json; charset=utf-8')
+            res.end(JSON.stringify({ error: 'NO_KEY', message: '未配置 AI 接口（设置页 → AI 教练）' }))
+            return
+          }
+          let body: { messages?: unknown; stream?: unknown; temperature?: unknown; max_tokens?: unknown }
+          try {
+            body = JSON.parse(await readBody(req))
+          } catch {
+            res.statusCode = 400
+            res.end('bad json')
+            return
+          }
+          const msgs = body.messages
+          if (
+            !Array.isArray(msgs) ||
+            msgs.length === 0 ||
+            !msgs.every(
+              (m) =>
+                typeof m === 'object' && m !== null &&
+                typeof (m as Record<string, unknown>).role === 'string' &&
+                typeof (m as Record<string, unknown>).content === 'string',
+            )
+          ) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json; charset=utf-8')
+            res.end(JSON.stringify({ error: 'BAD_REQUEST', message: 'messages 需为非空的 {role, content} 数组' }))
+            return
+          }
+          const payload: Record<string, unknown> = { model: ai.model, messages: msgs }
+          if (body.stream === true) payload.stream = true
+          if (typeof body.temperature === 'number') payload.temperature = body.temperature
+          if (typeof body.max_tokens === 'number') payload.max_tokens = body.max_tokens
+
+          // baseUrl 去尾斜杠后拼端点：https://api.deepseek.com 与 …/v1 两种写法都得到合法 chat 端点
+          const url = `${ai.baseUrl.replace(/\/+$/, '')}/chat/completions`
+          let upstream: Response
+          try {
+            upstream = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ai.apiKey}` },
+              body: JSON.stringify(payload),
+              signal: ac.signal,
+            })
+          } catch (err) {
+            if (ac.signal.aborted) res.destroy()
+            else {
+              res.statusCode = 502
+              res.setHeader('Content-Type', 'application/json; charset=utf-8')
+              res.end(
+                JSON.stringify({ error: 'UPSTREAM', message: `AI 服务连接失败：${(err as Error)?.message ?? err}` }),
+              )
+            }
+            return
+          }
+
+          // 流式：上游 SSE 逐 chunk 透传（前端边收边渲染打字机）
+          if (payload.stream === true && upstream.ok && upstream.body) {
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+            res.setHeader('Cache-Control', 'no-cache')
+            try {
+              const reader = upstream.body.getReader()
+              for (;;) {
+                const { done, value } = await reader.read()
+                if (done) break
+                if (res.destroyed) {
+                  ac.abort() // 客户端已断开，停掉上游读取
+                  break
+                }
+                res.write(value)
+              }
+              if (!res.destroyed) res.end()
+            } catch {
+              ac.abort()
+              if (!res.destroyed) res.end()
+            }
+            return
+          }
+
+          // 非流式 / 流式但上游报错（错误体是 JSON 不是 SSE）：状态码与响应体原样回传
+          const text = await upstream.text().catch(() => '')
+          res.statusCode = upstream.status
+          res.setHeader(
+            'Content-Type',
+            upstream.headers.get('content-type') ?? 'application/json; charset=utf-8',
+          )
+          res.end(text || JSON.stringify({ error: 'UPSTREAM', message: `AI 服务返回 ${upstream.status}` }))
+        } catch (err) {
+          if (ac.signal.aborted) res.destroy()
+          else {
+            console.error('[moxie-ai] error:', err instanceof Error ? err.message : err)
+            res.statusCode = 500
+            res.end('internal error')
+          }
+        } finally {
+          clearTimeout(timeout)
+        }
+      })
+    },
+  }
+}
+
 export function dbApi(): Plugin {
   return {
     name: 'moxie-db',
