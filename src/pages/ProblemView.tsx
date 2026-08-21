@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
-  Lightbulb, Maximize2, Minimize2, PenLine, Play, RotateCcw, Sparkles, Star, Upload, XCircle,
+  Lightbulb, Loader2, Maximize2, Minimize2, PenLine, Play, RotateCcw, Save, ShieldAlert, Sparkles, Star, Upload, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,16 +21,14 @@ import { parseMdFile, parseExamples } from '@/lib/import'
 import { failSchedule, passSchedule, REVIEWABLE_STATUSES, todayStr } from '@/lib/srs'
 import { useAttemptTimer } from '@/lib/useAttemptTimer'
 import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
+import { chatAI, AiError } from '@/lib/ai'
+import {
+  buildHintMessages, buildSolutionMessages, buildReviewMessages, buildHintCardMessages,
+  extractJsonBlock, toAttackCases,
+} from '@/lib/prompts'
 import { cn } from '@/lib/utils'
 
 type Phase = 'paste' | 'attempt' | 'solution' | 'reproduce' | 'done'
-
-// 原型演示：AI 分层提示的假数据（对应「找入口三步法」）
-const DEMO_HINTS = [
-  '别想代码，先手算：合并 [1,2,3] 和 [2,5,6]，像小学生排座位一样做一遍。你刚才重复的动作是什么？',
-  '观察你的动作：两只手各指一个数组，每次比较两边的数、放下较小的、那边的手往后移一格。这就是双指针。',
-  '陷阱来了：从前往后填会覆盖 nums1 还没用的数据。问自己：nums1 里哪些格子绝对不会被碰？-- 尾巴那 n 个 0。反过来，从后往前填。',
-]
 
 /** 贴题面板分节标题：编号徽章 + 标题（必填标 *）+ 说明 */
 function PasteSection({ index, title, required, desc }: {
@@ -138,8 +136,35 @@ export default function ProblemView() {
   const [code, setCode] = useState(problem?.skeleton?.[lang] ?? '')
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Record<string, CaseResult> | null>(null)
-  const [hintLevel, setHintLevel] = useState(0)
   const [hintOpen, setHintOpen] = useState(false)
+  // ===== S7-F7 AI 教练四件套 =====
+  // 无 key 时四件套入口全部隐藏，主流程不受影响（PRD 验收）
+  const aiReady = settings.ai.apiKey.trim() !== ''
+  // F7.1 分层提示：逐层按需请求，hints 累积已给过的层（堆叠展示，最新层流式打字）
+  const [hints, setHints] = useState<string[]>([])
+  const [hintBusy, setHintBusy] = useState(false)
+  const [hintError, setHintError] = useState<string | null>(null)
+  // F7.3 题解生成：genSolution 是未保存的生成内容（保存后走 problem.solution）
+  const [genSolution, setGenSolution] = useState('')
+  const [genBusy, setGenBusy] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  const [genSaved, setGenSaved] = useState(false)
+  // F7.2 边界审查（默写通过后的 done 屏触发）
+  const [review, setReview] = useState<{ text: string; cases: TestCase[] } | null>(null)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [reviewImported, setReviewImported] = useState(false)
+  // F7.4 提示卡：后台生成，结果直接写 problem.hintCard，这里只记生成中状态
+  const [hintCardPending, setHintCardPending] = useState(false)
+  // 组件卸载取消进行中的流（F7.4 不挂这里 -- 它要跨页面完成落库）
+  const aiAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => aiAbortRef.current?.abort(), [])
+  const newAiAbort = () => {
+    aiAbortRef.current?.abort()
+    const ac = new AbortController()
+    aiAbortRef.current = ac
+    return ac
+  }
   const [peekCount, setPeekCount] = useState(0)
   const [peekOpen, setPeekOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
@@ -322,10 +347,12 @@ export default function ProblemView() {
       status: sched.mastered ? 'mastered' : 'learned',
       lastFail: false, // 通过即清挂科标记
       srsLevel: sched.srsLevel,
-      // 达顶时 sched.nextReviewAt 为 undefined → 显式清掉旧排期（mastered 不进队列，留着是脏数据）；
+      // 达顶时 sched.nextReviewAt 为 undefined -> 显式清掉旧排期（mastered 不进队列，留着是脏数据）；
       // 非达顶排下次复习。与 onReproduceFail 的直赋写法一致（重构 spec §5.2）
       nextReviewAt: sched.nextReviewAt,
       lastLang: lang,
+      // F7.4：上次失败留的提示卡已起完作用（这次过了），清掉避免下次复习提前泄题
+      hintCard: undefined,
     })
     openNote('pass')
   }
@@ -343,6 +370,10 @@ export default function ProblemView() {
       nextReviewAt: sched.nextReviewAt,
       lastLang: lang,
     })
+    // F7.4：写了代码才值得复盘（纯空白失败没有卡点可言）；后台生成不挂 aiAbortRef
+    if (aiReady && code.trim() && code.trim() !== (problem.skeleton?.[lang] ?? '').trim()) {
+      void generateHintCard()
+    }
     openNote('fail')
   }
 
@@ -378,12 +409,152 @@ export default function ProblemView() {
     setPhase('done')
   }
 
+  // ===== S7-F7 AI 教练动作 =====
+  const aiErrMsg = (err: unknown, fallback: string) => (err instanceof AiError ? err.message : fallback)
+
+  // F7.1 请求第 level 层提示（流式打字）。先占位空层，失败撤掉，成功用全文回填
+  const askHint = async (level: number) => {
+    setHintError(null)
+    setHintBusy(true)
+    setHints((prev) => [...prev, ''])
+    const ac = newAiAbort()
+    try {
+      let acc = ''
+      const text = await chatAI(buildHintMessages(problem, lang, code, level, hints), {
+        temperature: 0.7,
+        // reasoning 模型的思考 token 也计入 max_tokens，限额要给足否则正文被挤空
+        maxTokens: 3000,
+        signal: ac.signal,
+        onDelta: (d) => {
+          acc += d
+          setHints((prev) => prev.map((h, i) => (i === level - 1 ? acc : h)))
+        },
+      })
+      setHints((prev) => prev.map((h, i) => (i === level - 1 ? text.trim() || acc : h)))
+    } catch (err) {
+      setHints((prev) => prev.slice(0, level - 1)) // 撤掉占位层
+      if (!(err instanceof AiError && err.code === 'ABORT')) {
+        setHintError(aiErrMsg(err, 'AI 请求失败，请稍后重试'))
+      }
+    } finally {
+      setHintBusy(false)
+    }
+  }
+
+  // F7.3 流式生成题解
+  const generateSolution = async () => {
+    setGenError(null)
+    setGenBusy(true)
+    setGenSolution('')
+    const ac = newAiAbort()
+    try {
+      let acc = ''
+      const text = await chatAI(buildSolutionMessages(problem), {
+        temperature: 0.3,
+        maxTokens: 8000,
+        signal: ac.signal,
+        onDelta: (d) => {
+          acc += d
+          setGenSolution(acc)
+        },
+      })
+      setGenSolution(text || acc)
+    } catch (err) {
+      if (!(err instanceof AiError && err.code === 'ABORT')) {
+        setGenSolution('') // 生成被中断时报错但不留半截内容（否则半截题解仍可被保存）
+        setGenError(aiErrMsg(err, 'AI 生成题解失败，请稍后重试'))
+      }
+    } finally {
+      setGenBusy(false)
+    }
+  }
+
+  const saveGenSolution = () => {
+    if (!genSolution.trim()) return
+    updateProblem(problem.id, { solution: genSolution })
+    setGenSaved(true)
+  }
+
+  // F7.2 边界审查（非流式：末尾的用例 JSON 要等全文才能解析）
+  const runReview = async () => {
+    setReviewError(null)
+    setReviewBusy(true)
+    setReview(null)
+    setReviewImported(false)
+    const ac = newAiAbort()
+    try {
+      const text = await chatAI(buildReviewMessages(problem, code, lang), {
+        temperature: 0.2,
+        maxTokens: 6000,
+        signal: ac.signal,
+      })
+      // 参数个数从现有用例推断（EntrySpec 不存参数数），个数不符的用例判题时直接跑炸，过滤掉
+      const arity = problem.testCases[0]?.args.length
+      setReview({ text, cases: toAttackCases(extractJsonBlock(text), arity) })
+    } catch (err) {
+      if (!(err instanceof AiError && err.code === 'ABORT')) {
+        setReviewError(aiErrMsg(err, 'AI 审查失败，请稍后重试'))
+      }
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  // F7.2 导入攻击用例：按「入参+期望」去重；label 保证唯一（判题结果按 label 索引）
+  const importAttackCases = () => {
+    if (!review || review.cases.length === 0) return
+    const keys = new Set(problem.testCases.map((tc) => `${tc.args.join('\u0000')}=>${tc.expected}`))
+    const labels = new Set(problem.testCases.map((tc) => tc.label))
+    const fresh: TestCase[] = []
+    for (const c of review.cases) {
+      const key = `${c.args.join('\u0000')}=>${c.expected}`
+      if (keys.has(key)) continue
+      keys.add(key)
+      let label = c.label
+      for (let i = 2; labels.has(label); i++) label = `${c.label}${i}`
+      labels.add(label)
+      fresh.push({ ...c, label })
+    }
+    if (fresh.length) updateProblem(problem.id, { testCases: [...problem.testCases, ...fresh] })
+    setReviewImported(true)
+  }
+
+  // F7.4 后台生成「下次提示卡」：用户可能马上离开本题，不随组件卸载取消，
+  // updateProblem 是 store 层函数式更新，跨页面也能落库
+  const generateHintCard = async () => {
+    setHintCardPending(true)
+    try {
+      const text = await chatAI(buildHintCardMessages(problem, code, lang), {
+        temperature: 0.5,
+        maxTokens: 2000,
+      })
+      const card = text.trim().replace(/^["'「『]+|["'」』]+$/g, '').trim()
+      if (card) updateProblem(problem.id, { hintCard: card })
+    } catch {
+      // 后台任务：失败静默，done 屏只是不显示新卡
+    } finally {
+      setHintCardPending(false)
+    }
+  }
+
   // 看题解：本地无题解 → V1.0 兜底提示，停在 attempt；有则记一次历史后进 solution 态。
   // outcome：已超时才来看题解 → 'timeout'（卡到点放弃）；未超时主动看 → 'fail'。
   // 超时不锁界面、用户可能继续写后自解，那条路径走 selfSolved 记 'pass'，不在此处。
   const seeSolution = () => {
     if (!problem.solution) {
-      setNotice('暂无题解，请手动粘贴（V1.1 起 AI 可生成）')
+      // F7.3：本地无题解 -> 配置了 AI 则进题解态现场生成（仍记一次 attempt 放弃）
+      if (aiReady) {
+        setNotice(null)
+        setTimeUpMsg(null)
+        recordAttempt(timer.overtime ? 'timeout' : 'fail')
+        setGenSolution('')
+        setGenError(null)
+        setGenSaved(false)
+        setPhase('solution')
+        void generateSolution()
+      } else {
+        setNotice('暂无题解，请手动粘贴（设置页配置 API Key 后，AI 可现场生成）')
+      }
       return
     }
     setNotice(null)
@@ -413,6 +584,7 @@ export default function ProblemView() {
       nextReviewAt: undefined,
       self: undefined,
       lastFail: undefined,
+      hintCard: undefined, // F7.4：重学从零开始，旧失败周期的提示卡一并作废
     })
     setResetOpen(false)
     navigate('/problems')
@@ -790,6 +962,12 @@ export default function ProblemView() {
                   <EyeOff className="size-4 text-amber-500" />
                   <span className="text-sm font-bold">默写模式 · 题解已收起</span>
                 </div>
+                {problem.hintCard && (
+                  <div className="mb-3 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
+                    <span className="font-medium">教练提示卡：</span>
+                    <span className="text-muted-foreground">{problem.hintCard}</span>
+                  </div>
+                )}
                 {problem.note && (
                   <div className="mb-3 rounded-lg border border-dashed bg-amber-500/5 p-3 text-sm">
                     <span className="font-medium">你的笔记：</span>
@@ -956,18 +1134,51 @@ export default function ProblemView() {
                     {notice}
                   </div>
                 )}
-                {hintOpen && (
+                {aiReady && hintOpen && (
                   <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 p-3">
-                    <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Sparkles className="size-3.5 text-blue-500" />
-                      AI 教练 · 第 {Math.min(hintLevel, 3)} 层提示（原型演示，P1 功能）
+                      AI 教练 · 分层提示（不给答案）
                     </div>
-                    <p className="text-sm leading-relaxed">
-                      {DEMO_HINTS[Math.min(hintLevel, 3) - 1]}
-                    </p>
-                    {hintLevel < 3 ? (
-                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setHintLevel((l) => l + 1)}>
-                        还是卡着，再要一层
+                    <div className="space-y-2">
+                      {hints.map((h, i) => (
+                        <div key={i} className="text-sm leading-relaxed">
+                          <span className="mr-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+                            第 {i + 1} 层
+                          </span>
+                          {h}
+                          {hintBusy && i === hints.length - 1 && (
+                            <Loader2 className="ml-1 inline size-3.5 animate-spin text-blue-500" />
+                          )}
+                        </div>
+                      ))}
+                      {hintBusy && hints.length === 0 && (
+                        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> 教练思考中…
+                        </p>
+                      )}
+                    </div>
+                    {hintError && (
+                      <div className="mt-2 rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                        {hintError}
+                        <button
+                          type="button"
+                          className="ml-2 underline underline-offset-2"
+                          onClick={() => void askHint(hints.length + 1)}
+                        >
+                          重试
+                        </button>
+                      </div>
+                    )}
+                    {hints.length < 3 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        disabled={hintBusy}
+                        onClick={() => void askHint(hints.length + 1)}
+                      >
+                        <Lightbulb className="size-3.5" /> {hints.length === 0 ? '给个提示' : '还是卡着，再要一层'}
                       </Button>
                     ) : (
                       <p className="mt-2 text-xs text-muted-foreground">三层用完了 -- 卡住就停，建议转「看题解」</p>
@@ -975,14 +1186,16 @@ export default function ProblemView() {
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {!hintOpen ? (
-                    <Button variant="outline" onClick={() => { setHintOpen(true); setHintLevel(1) }}>
-                      <Lightbulb className="size-4" /> 给个提示（不给答案）
-                    </Button>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => { setHintOpen(false); setHintLevel(0) }}>
-                      收起提示
-                    </Button>
+                  {aiReady && (
+                    !hintOpen ? (
+                      <Button variant="outline" onClick={() => { setHintOpen(true); if (hints.length === 0) void askHint(1) }}>
+                        <Lightbulb className="size-4" /> 给个提示（不给答案）
+                      </Button>
+                    ) : (
+                      <Button variant="ghost" size="sm" onClick={() => setHintOpen(false)}>
+                        收起提示
+                      </Button>
+                    )
                   )}
                   <Button
                     variant="destructive"
@@ -1025,16 +1238,60 @@ export default function ProblemView() {
         </div>
       )}
 
-      {/* ===== 看题解态 ===== */}
+      {/* ===== 看题解态（本地无题解且配了 AI 时现场生成，F7.3）===== */}
       {phase === 'solution' && (
         <div className="mx-auto max-w-3xl rounded-xl border bg-card p-5">
           <div className="mb-3 flex items-center gap-2">
             <BookOpen className="size-4 text-blue-500" />
             <span className="text-sm font-bold">题解 · {problem.pattern}</span>
+            {!problem.solution && genSolution.trim() && <Badge variant="secondary">AI 生成</Badge>}
           </div>
-          <div className="max-h-[560px] overflow-y-auto pr-2">{md(problem.solution ?? '')}</div>
+          {problem.solution ? (
+            <div className="max-h-[560px] overflow-y-auto pr-2">{md(problem.solution)}</div>
+          ) : (
+            <div className="space-y-3">
+              {genBusy && !genSolution && (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> AI 教练正在生成题解…
+                </p>
+              )}
+              {genSolution && <div className="max-h-[560px] overflow-y-auto pr-2">{md(genSolution)}</div>}
+              {genError && (
+                <div className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                  {genError}
+                  <Button variant="outline" size="sm" className="ml-2" onClick={() => void generateSolution()}>
+                    重试
+                  </Button>
+                  {/* 生成失败时给个明确出口（进默写的按钮此时禁用），不必被迫「只看题解不刷」 */}
+                  <Button asChild variant="ghost" size="sm" className="ml-1">
+                    <Link to="/problems">返回题单</Link>
+                  </Button>
+                </div>
+              )}
+              {genSolution && !genBusy && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {genSaved ? (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">已保存为本地题解 ✓</span>
+                  ) : (
+                    <Button size="sm" onClick={saveGenSolution}>
+                      <Save className="size-3.5" /> 保存为本地题解
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => void generateSolution()}>
+                    重新生成
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
           <Separator className="my-4" />
-          <Button onClick={enterReproduce} className="w-full" size="lg">
+          <Button
+            onClick={enterReproduce}
+            className="w-full"
+            size="lg"
+            disabled={!problem.solution && (genBusy || !genSolution.trim())}
+            title={!problem.solution && !genSolution.trim() && !genBusy ? '题解还没生成：先重试生成，或返回题单' : ''}
+          >
             <PenLine className="size-4" /> 关掉题解，进入默写
           </Button>
           <p className="mt-2 text-center text-xs text-muted-foreground">
@@ -1051,9 +1308,10 @@ export default function ProblemView() {
         </div>
       )}
 
-      {/* ===== 完成态 ===== */}
+      {/* ===== 完成态（默写通过后可做 F7.2 边界审查）===== */}
       {phase === 'done' && (
-        <div className="mx-auto max-w-md space-y-4 rounded-xl border bg-card p-8 text-center">
+        <div className="mx-auto max-w-md space-y-4">
+          <div className="rounded-xl border bg-card p-8 text-center">
           {doneKind === 'self-solved' ? (
             <>
               <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
@@ -1099,6 +1357,17 @@ export default function ProblemView() {
               <p className="text-sm text-muted-foreground">
                 默写失败很正常 -- 它会在 {reviewInDays ?? 3} 天后回到复习队列
               </p>
+              {aiReady && hintCardPending && (
+                <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" /> AI 教练正在写「下次提示卡」…
+                </p>
+              )}
+              {problem.hintCard && !hintCardPending && (
+                <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
+                  <span className="font-medium">下次提示卡：</span>
+                  {problem.hintCard}
+                </div>
+              )}
             </>
           )}
           {note.trim() && (
@@ -1110,6 +1379,75 @@ export default function ProblemView() {
             <Button asChild variant="outline"><Link to="/problems">返回题单</Link></Button>
             <Button asChild><Link to="/">去仪表盘</Link></Button>
           </div>
+          </div>
+
+          {/* F7.2 边界审查：默写通过后（PRD），只挑毛病不给修复代码，攻击用例可一键导入 */}
+          {doneKind === 'reproduce' && noteOutcome === 'pass' && aiReady && (
+            <div className="rounded-xl border bg-card p-5 text-left">
+              <div className="mb-1 flex items-center gap-2">
+                <ShieldAlert className="size-4 text-blue-500" />
+                <span className="text-sm font-bold">AI 边界审查</span>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                按「边界三问」挑毛病（不给修复代码，修改靠自己），并生成 3 个攻击用例
+              </p>
+              {!review && !reviewBusy && !reviewError && (
+                <Button variant="outline" size="sm" onClick={() => void runReview()}>
+                  <ShieldAlert className="size-3.5" /> 审查我刚才的代码
+                </Button>
+              )}
+              {reviewBusy && (
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> 教练审查中…
+                </p>
+              )}
+              {reviewError && (
+                <div className="rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                  {reviewError}
+                  <button
+                    type="button"
+                    className="ml-2 underline underline-offset-2"
+                    onClick={() => void runReview()}
+                  >
+                    重试
+                  </button>
+                </div>
+              )}
+              {review && (
+                <>
+                  <div className="max-h-64 overflow-y-auto pr-1 text-sm">{md(review.text)}</div>
+                  {review.cases.length > 0 && (
+                    <div className="mt-3 rounded-lg border p-2.5">
+                      <p className="text-xs font-medium">攻击用例（{review.cases.length} 条）</p>
+                      <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-muted-foreground">
+                        {review.cases.map((c) => (
+                          <li key={c.label} className="truncate">
+                            {c.label}：{c.args.join(', ')} -&gt; {c.expected}
+                            {c.outArg != null && <span className="ml-1">（结果取入参 {c.outArg}）</span>}
+                          </li>
+                        ))}
+                      </ul>
+                      {!reviewImported ? (
+                        <Button size="sm" className="mt-2" onClick={importAttackCases}>
+                          导入 {review.cases.length} 条攻击用例
+                        </Button>
+                      ) : (
+                        <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                          已加入用例表 -- 下次刷这题时生效
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {review.cases.length === 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">未能解析出攻击用例，可重试或手动补用例</p>
+                  )}
+                  <Button variant="ghost" size="sm" className="mt-2" onClick={() => void runReview()}>
+                    再审一次
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1178,7 +1516,7 @@ export default function ProblemView() {
               <Eye className="size-4 text-amber-500" /> 偷看题解（第 {peekCount} 次，已记录）
             </DialogTitle>
           </DialogHeader>
-          {md(problem.solution ?? '')}
+          {md(problem.solution ?? genSolution)}
           <DialogFooter>
             <Button onClick={() => setPeekOpen(false)}>好了，继续默写</Button>
           </DialogFooter>
