@@ -4,19 +4,19 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import {
-  ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
+  ArrowLeft, ArrowRight, BookOpen, Check, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
   Hourglass, Lightbulb, Loader2, Maximize2, Minimize2, PenLine, Play, RotateCcw, Save, ShieldAlert, Sparkles, Star, Upload, X, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
 import { TestCaseEditor } from '@/components/TestCaseEditor'
 import { useProblem, useProblems, useUpdateProblem, useSettings } from '@/lib/store'
-import { leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
+import { leetcodeUrl, STATUS_LABEL, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
 import { DIFF_BADGE } from '@/lib/badges'
 import { parseEntry } from '@/lib/entry'
 import { parseMdFile, parseExamples } from '@/lib/import'
@@ -166,6 +166,12 @@ function HintPanel({ hints, busy, error, onAsk }: {
       )}
     </div>
   )
+}
+
+/** SRS 日期（YYYY-MM-DD）-> 「8月25日」：重置弹窗里把抽象的排期落成具体日子（纯字符串切分，避开时区） */
+const cnDate = (ymd: string) => {
+  const [, m, d] = ymd.split('-').map(Number)
+  return `${m}月${d}日`
 }
 
 export default function ProblemView() {
@@ -1702,20 +1708,72 @@ export default function ProblemView() {
         </DialogContent>
       </Dialog>
 
-      {/* 重置本题 SRS 确认弹窗（S6-F6）：打回未开始重学，题面/笔记/历史保留 */}
+      {/* 重置本题 SRS 确认弹窗（S6-F6）：打回未开始重学，题面/笔记/历史保留。
+          清空/保留左右对置：清空是决策点，逐条列且只列当前真实存在的项（没徽章就不提徽章，
+          没挂科就不提易错标）；保留是安抚，收敛成一段即可。默写态顶栏藏了元数据（防剧透），
+          这份清单恰好补上「重置会失去什么」。样式与 Settings 危险区同语言。 */}
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>重置本题，从头重学？</DialogTitle>
+            <DialogDescription>
+              #{problem.id} {problem.title} · 当前「{STATUS_LABEL[problem.status]}」
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            会清空 SRS 排期、自解徽章 ⭐、易错标，把题打回<strong>未开始</strong>。
-            题面 / 模板 / 题解 / 用例 / 笔记 / 历史记录都保留 —— 重学不是抹除过去。
-            重置后会回到题单，你随时可以点开重新开始。
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs font-medium text-destructive">会清空</p>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                <li className="flex items-start gap-2">
+                  <X className="mt-0.5 size-3.5 shrink-0 text-destructive/70" />
+                  <span>
+                    SRS 排期
+                    {problem.nextReviewAt && (
+                      <span className="text-muted-foreground">（原定 {cnDate(problem.nextReviewAt)} 复习）</span>
+                    )}
+                  </span>
+                </li>
+                {problem.self && (
+                  <li className="flex items-start gap-2">
+                    <X className="mt-0.5 size-3.5 shrink-0 text-destructive/70" />
+                    <span className="inline-flex items-center gap-1">
+                      自解徽章
+                      <Star className="size-3.5 text-amber-500" fill="currentColor" />
+                    </span>
+                  </li>
+                )}
+                {problem.lastFail && (
+                  <li className="flex items-start gap-2">
+                    <X className="mt-0.5 size-3.5 shrink-0 text-destructive/70" />
+                    <span>易错标</span>
+                  </li>
+                )}
+                {problem.hintCard && (
+                  <li className="flex items-start gap-2">
+                    <X className="mt-0.5 size-3.5 shrink-0 text-destructive/70" />
+                    <span>错题提示卡</span>
+                  </li>
+                )}
+                <li className="flex items-start gap-2">
+                  <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <span>状态打回「未开始」</span>
+                </li>
+              </ul>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">会保留</p>
+              <p className="mt-2 flex items-start gap-2 text-sm">
+                <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span>题面 / 模板 / 题解 / 用例 / 笔记 / 历史记录</span>
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            重学不是抹除过去 -- 重置后回到题单，随时可以点开重新开始。
           </p>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setResetOpen(false)}>取消</Button>
-            <Button variant="destructive" onClick={resetSrs}>重置</Button>
+            <Button variant="destructive" onClick={resetSrs}>重置重学</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
