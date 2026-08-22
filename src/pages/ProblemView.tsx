@@ -1133,8 +1133,10 @@ export default function ProblemView() {
                 </p>
               )}
               {/* key={lang}：切语言重建编辑器，直接以新语言的 value 初始化文档，
-                  绕开 react-codemirror 跨值同步的时序问题（显示层偶发不刷新） */}
-              <CodeEditor key={lang} value={code} onChange={setCode} lang={lang} height="300px" />
+                  绕开 react-codemirror 跨值同步的时序问题（显示层偶发不刷新）。
+                  高度随视口收缩（clamp）：矮屏上把纵向预算让给底下的决策按钮，避免掉出折叠线。
+                  30vh 档按 720p 笔记本两行按钮刚好全露校准；大屏仍到 300px 上限 */}
+              <CodeEditor key={lang} value={code} onChange={setCode} lang={lang} height="clamp(180px, 30vh, 300px)" />
             </div>
 
             {/* 用例表 */}
@@ -1151,7 +1153,8 @@ export default function ProblemView() {
                     <Play className="size-3.5" /> {running ? '运行中…' : '运行用例'}
                   </Button>
                 </div>
-                <div className="max-h-56 overflow-y-auto">
+                {/* 同编辑器：矮屏收缩，保底 7rem 保证用例还看得见几行 */}
+                <div className="max-h-[clamp(7rem,22vh,14rem)] overflow-y-auto">
                   {problem.testCases.map((tc) => {
                     const r = results?.[tc.label]
                     return (
