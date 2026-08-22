@@ -133,7 +133,14 @@ export default function ProblemView() {
   // 默认语言：优先上次用的，其次用户设置 defaultLang，最后兜底 python
   // （types 注释：defaultLang = 新题/无 lastLang 时的默认语言；原先硬编码 python 会无视设置）
   const [lang, setLang] = useState<Lang>(problem?.lastLang ?? settings.defaultLang ?? 'python')
-  const [code, setCode] = useState(problem?.skeleton?.[lang] ?? '')
+  // 按语言分存草稿：编辑器始终显示当前语言的内容（用户草稿优先，没写过则该语言骨架），
+  // 切语言互不覆盖--修「切到 JavaScript 仍显示 Python 代码」bug
+  const [codeByLang, setCodeByLang] = useState<Record<Lang, string>>(() => ({
+    python: problem?.skeleton?.python ?? '',
+    javascript: problem?.skeleton?.javascript ?? '',
+  }))
+  const code = codeByLang[lang]
+  const setCode = (v: string) => setCodeByLang((prev) => ({ ...prev, [lang]: v }))
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Record<string, CaseResult> | null>(null)
   const [hintOpen, setHintOpen] = useState(false)
@@ -229,10 +236,9 @@ export default function ProblemView() {
     )
   }
 
-  // 切语言：仅默写模式清空为骨架签名；尝试阶段保留用户已写代码，不覆盖（v1.2 修订）
+  // 切语言：显示目标语言的草稿（codeByLang[l]，没写过即该语言骨架），两语言互不覆盖
   const switchLang = (l: Lang) => {
     setLang(l)
-    setCode((prev) => (phase === 'reproduce' ? problem.skeleton?.[l] ?? '' : prev))
     setResults(null)
     updateProblem(problem.id, { lastLang: l })
   }
@@ -294,7 +300,11 @@ export default function ProblemView() {
     setPhase('reproduce')
     setReproducePhaseTag('reproduce') // 从 solution 态进 = 首次默写
     settledRef.current = false // 新一轮默写，结算守卫复位
-    setCode(problem.skeleton?.[lang] ?? '')
+    // 两种语言草稿都重置为骨架：默写从签名开始，另一语言的 attempt 草稿不得借切语言泄露
+    setCodeByLang({
+      python: problem.skeleton?.python ?? '',
+      javascript: problem.skeleton?.javascript ?? '',
+    })
     setResults(null)
     setPeekCount(0)
     setTimeUpMsg(null)
@@ -615,7 +625,7 @@ export default function ProblemView() {
       testCases: pasteCases.length ? pasteCases : parseExamples(pasteStatement),
       entry,
     })
-    if (firstPaste) setCode(lang === 'python' ? pasteSkeletonPy : pasteSkeletonJs)
+    if (firstPaste) setCodeByLang({ python: pasteSkeletonPy, javascript: pasteSkeletonJs })
     setPhase('attempt')
   }
 
@@ -1053,7 +1063,14 @@ export default function ProblemView() {
                   </Button>
                 </div>
               </div>
-              <CodeEditor value={code} onChange={setCode} lang={lang} height="300px" />
+              {!problem.skeleton?.[lang]?.trim() && !code.trim() && (
+                <p className="border-b bg-muted/30 px-3 py-1 text-xs text-muted-foreground">
+                  未粘贴{lang === 'python' ? 'Python' : 'JavaScript'}模板，编辑器为空
+                </p>
+              )}
+              {/* key={lang}：切语言重建编辑器，直接以新语言的 value 初始化文档，
+                  绕开 react-codemirror 跨值同步的时序问题（显示层偶发不刷新） */}
+              <CodeEditor key={lang} value={code} onChange={setCode} lang={lang} height="300px" />
             </div>
 
             {/* 用例表 */}
@@ -1466,7 +1483,7 @@ export default function ProblemView() {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden rounded-xl border">
-            <CodeEditor value={code} onChange={setCode} lang={lang} height="100%" />
+            <CodeEditor key={lang} value={code} onChange={setCode} lang={lang} height="100%" />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Timer
