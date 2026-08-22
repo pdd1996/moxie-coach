@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
-  Lightbulb, Loader2, Maximize2, Minimize2, PenLine, Play, RotateCcw, Save, ShieldAlert, Sparkles, Star, Upload, XCircle,
+  Hourglass, Lightbulb, Loader2, Maximize2, Minimize2, PenLine, Play, RotateCcw, Save, ShieldAlert, Sparkles, Star, Upload, X, XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -245,6 +245,8 @@ export default function ProblemView() {
   const [zen, setZen] = useState(false)
   const [zenStatementOpen, setZenStatementOpen] = useState(false)
   const [timeUpMsg, setTimeUpMsg] = useState<string | null>(null)
+  // 超时悬浮决策条是否被手动收起（「再挣扎一下」）。计时复位（overtime 转 false）时自动重新武装
+  const [overtimeBarClosed, setOvertimeBarClosed] = useState(false)
 
   // 贴题面板暂存（S2-F2）：本地 state，点「贴好了」一次性 updateProblem（含 entry）
   const [pasteStatement, setPasteStatement] = useState(problem?.statement ?? '')
@@ -304,6 +306,8 @@ export default function ProblemView() {
         : '时间到 -- 卡住就停，不死磕是纪律，看看题解？',
     ),
   )
+  // 计时复位（含切阶段自动重置）-> 重新武装超时决策条，下一轮超时再次浮出
+  useEffect(() => { if (!timer.overtime) setOvertimeBarClosed(false) }, [timer.overtime])
   // 重置计时同时清超时文案（避免重置后旧「时间到」残留、firedRef 复位后重复触发）
   const resetTimer = () => { timer.reset(); setTimeUpMsg(null) }
   const timerLabel = phase === 'reproduce' ? '默写限时' : '尝试限时'
@@ -1551,6 +1555,34 @@ export default function ProblemView() {
                   </Button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 超时决策条：平时不打扰，卡到点才把选择送到眼前 ===== */}
+      {/* 仅解题态（attempt）浮出；专注模式有自己的底栏不重复；可关掉继续挣扎（不死磕是纪律，挣扎是自由） */}
+      {phase === 'attempt' && !zen && timer.overtime && !overtimeBarClosed && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 px-4 py-2.5 shadow-lg backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+              <Hourglass className="size-4 shrink-0" /> 时间到 -- 不死磕是纪律，不是认输
+            </span>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="destructive" onClick={seeSolution}>
+                <BookOpen className="size-3.5" /> 想不出，看题解
+              </Button>
+              <Button size="sm" variant="outline" onClick={selfSolved} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
+                <CheckCircle2 className="size-3.5" /> 没看题解，直接过了
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setOvertimeBarClosed(true)}
+                title="我再挣扎一下，先收起"
+              >
+                <X className="size-4" />
+              </Button>
             </div>
           </div>
         </div>
