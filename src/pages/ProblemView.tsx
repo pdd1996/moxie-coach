@@ -291,6 +291,23 @@ export default function ProblemView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
+  // 计时状态提升到 hook（S3-F3）：主视图与专注模式共享，避免双实例不同步；
+  // elapsedSec/pausedSec 用于写 history。resetKey=phase：切阶段重置。
+  // 时长来自 settings.timeLimitMin（spec「可配置」）：db.json 改了即生效；旧 db 缺字段时兜底 25。
+  // hook 必须在 !problem 早退之前无条件调用（题号无效时计时器空转无害）
+  const diffKey = (problem?.difficulty ?? 'medium').toLowerCase() as 'easy' | 'medium' | 'hard'
+  const limitMin = settings.timeLimitMin?.[diffKey] ?? 25
+  const timer = useAttemptTimer(limitMin, phase, () =>
+    setTimeUpMsg(
+      phase === 'reproduce'
+        ? '默写时间到 -- 尽力就好，写不出就记一次失败，3 天后再战'
+        : '时间到 -- 卡住就停，不死磕是纪律，看看题解？',
+    ),
+  )
+  // 重置计时同时清超时文案（避免重置后旧「时间到」残留、firedRef 复位后重复触发）
+  const resetTimer = () => { timer.reset(); setTimeUpMsg(null) }
+  const timerLabel = phase === 'reproduce' ? '默写限时' : '尝试限时'
+
   if (!problem) {
     return (
       <div className="p-8 text-center text-muted-foreground">
@@ -764,22 +781,6 @@ export default function ProblemView() {
     }
     setImportMsg(`导入 ${imported} 题${skipped ? `，跳过 ${skipped} 个未匹配` : ''}${hitCurrent ? '（含当前题，已回填）' : ''}`)
   }
-
-  // 计时状态提升到 hook（S3-F3）：主视图与专注模式共享，避免双实例不同步；
-  // elapsedSec/pausedSec 用于写 history。resetKey=phase：切阶段重置。
-  // 时长来自 settings.timeLimitMin（spec「可配置」）：db.json 改了即生效；旧 db 缺字段时兜底 25
-  const diffKey = problem.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard'
-  const limitMin = settings.timeLimitMin?.[diffKey] ?? 25
-  const timer = useAttemptTimer(limitMin, phase, () =>
-    setTimeUpMsg(
-      phase === 'reproduce'
-        ? '默写时间到 -- 尽力就好，写不出就记一次失败，3 天后再战'
-        : '时间到 -- 卡住就停，不死磕是纪律，看看题解？',
-    ),
-  )
-  // 重置计时同时清超时文案（避免重置后旧「时间到」残留、firedRef 复位后重复触发）
-  const resetTimer = () => { timer.reset(); setTimeUpMsg(null) }
-  const timerLabel = phase === 'reproduce' ? '默写限时' : '尝试限时'
 
   const md = (text: string) => (
     <ReactMarkdown
