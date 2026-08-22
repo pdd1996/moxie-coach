@@ -817,8 +817,13 @@ export default function ProblemView() {
     </ReactMarkdown>
   )
 
+  // 示例行标签（输入/输出/解释）：与 statement.ts 的分节口径一致，
+  // 渲染时标签弱化成 muted、值保持等宽 -- 数据行用 mono 才像「数据」
+  const RE_EXAMPLE_LINE_LABEL = /^(?:输入|输出|解释|Input|Output|Explanation)\s*[:：]/i
+
   // 题面分节渲染：正文走 md()；示例块结构化排版 --
-  // 题目与首个示例拉开（mt-6），示例之间收紧（mt-3），示例头贴住自己的输入/输出
+  // 题目与首个示例拉开（mt-6），示例之间收紧（mt-3），
+  // 输入/输出/解释装进 mono 卡底（LeetCode 示例块的习惯样式）
   const renderStatement = (text: string) => {
     const segs = splitStatement(text)
     return segs.map((seg, i) => {
@@ -826,9 +831,19 @@ export default function ProblemView() {
       const first = i === 0 || segs[i - 1].kind === 'md'
       return (
         <div key={i} className={cn('mb-3', first ? 'mt-6' : 'mt-3')}>
-          <p className="mb-1 text-sm font-bold">{seg.head}</p>
+          <p className="mb-1.5 text-sm font-bold">{seg.head}</p>
           {seg.lines.length > 0 && (
-            <p className="whitespace-pre-line text-sm leading-relaxed">{seg.lines.join('\n')}</p>
+            <div className="space-y-1 rounded-lg bg-muted/60 p-2.5 font-mono text-xs leading-relaxed">
+              {seg.lines.map((line, j) => {
+                const label = line.match(RE_EXAMPLE_LINE_LABEL)
+                return (
+                  <p key={j} className="whitespace-pre-wrap break-words">
+                    {label && <span className="text-muted-foreground">{label[0]}</span>}
+                    {label ? line.slice(label[0].length) : line}
+                  </p>
+                )
+              })}
+            </div>
           )}
         </div>
       )
@@ -1619,31 +1634,43 @@ export default function ProblemView() {
         </div>
       )}
 
-      {/* 专注模式里看题目 */}
+      {/* 专注模式里看题目：头部（题号+标题+难度）/ 题面独立滚动 / 按钮常驻底部。
+          宽度必须带 sm: 前缀 -- DialogContent 基类自带 sm:max-w-sm，
+          只传 max-w-2xl 压不过它，桌面端会被挤成 384px 窄条 */}
       <Dialog open={zenStatementOpen} onOpenChange={setZenStatementOpen}>
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>题目 · {problem.difficulty}</DialogTitle>
-          </DialogHeader>
-          {renderStatement(problem.statement ?? '')}
-          <DialogFooter>
+        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <div className="flex items-center gap-2 border-b px-5 py-3 pr-12">
+            <DialogTitle className="min-w-0 truncate">
+              <span className="font-mono text-muted-foreground">#{problem.id}</span> {problem.title}
+            </DialogTitle>
+            {/* 默写态不露难度：与顶栏「防剧透」同一口径 */}
+            {phase !== 'reproduce' && (
+              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', DIFF_BADGE[problem.difficulty])}>
+                {problem.difficulty}
+              </span>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {renderStatement(problem.statement ?? '')}
+          </div>
+          <div className="flex justify-end border-t px-5 py-3">
             <Button onClick={() => setZenStatementOpen(false)}>继续写代码</Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* 偷看题解弹窗 */}
+      {/* 偷看题解弹窗：与看题目弹窗同构 -- 头部/独立滚动/常驻底部，宽度带 sm: 才压过基类 sm:max-w-sm */}
       <Dialog open={peekOpen} onOpenChange={setPeekOpen}>
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+          <div className="flex items-center border-b px-5 py-3 pr-12">
             <DialogTitle className="flex items-center gap-2">
-              <Eye className="size-4 text-amber-500" /> 偷看题解（第 {peekCount} 次，已记录）
+              <Eye className="size-4 shrink-0 text-amber-500" /> 偷看题解（第 {peekCount} 次，已记录）
             </DialogTitle>
-          </DialogHeader>
-          {md(problem.solution ?? genSolution)}
-          <DialogFooter>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{md(problem.solution ?? genSolution)}</div>
+          <div className="flex justify-end border-t px-5 py-3">
             <Button onClick={() => setPeekOpen(false)}>好了，继续默写</Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1651,7 +1678,7 @@ export default function ProblemView() {
           屏蔽 X/遮罩/Esc，防止回到 reproduce 后二次结算 */}
       <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
         <DialogContent
-          className="max-w-lg"
+          className="sm:max-w-lg"
           showCloseButton={false}
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
@@ -1677,7 +1704,7 @@ export default function ProblemView() {
 
       {/* 重置本题 SRS 确认弹窗（S6-F6）：打回未开始重学，题面/笔记/历史保留 */}
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>重置本题，从头重学？</DialogTitle>
           </DialogHeader>
