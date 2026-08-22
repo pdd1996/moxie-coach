@@ -102,6 +102,69 @@ function CollapseSection({ index, label, badge, status, statusOk, desc, open, on
   )
 }
 
+/**
+ * F7.1 分层提示面板：解题态主视图与专注模式共用（专注模式里教练也不能缺席）。
+ * 逐层堆叠展示，最新层流式打字中显示 spinner，三层用完引导转「看题解」。
+ */
+function HintPanel({ hints, busy, error, onAsk }: {
+  hints: string[]
+  busy: boolean
+  error: string | null
+  onAsk: (level: number) => void
+}) {
+  return (
+    <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Sparkles className="size-3.5 text-blue-500" />
+        AI 教练 · 分层提示（不给答案）
+      </div>
+      <div className="space-y-2">
+        {hints.map((h, i) => (
+          <div key={i} className="text-sm leading-relaxed">
+            <span className="mr-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+              第 {i + 1} 层
+            </span>
+            {h}
+            {busy && i === hints.length - 1 && (
+              <Loader2 className="ml-1 inline size-3.5 animate-spin text-blue-500" />
+            )}
+          </div>
+        ))}
+        {busy && hints.length === 0 && (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" /> 教练思考中…
+          </p>
+        )}
+      </div>
+      {error && (
+        <div className="mt-2 rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+          {error}
+          <button
+            type="button"
+            className="ml-2 underline underline-offset-2"
+            onClick={() => onAsk(hints.length + 1)}
+          >
+            重试
+          </button>
+        </div>
+      )}
+      {hints.length < 3 ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2"
+          disabled={busy}
+          onClick={() => onAsk(hints.length + 1)}
+        >
+          <Lightbulb className="size-3.5" /> {hints.length === 0 ? '给个提示' : '还是卡着，再要一层'}
+        </Button>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">三层用完了 -- 卡住就停，建议转「看题解」</p>
+      )}
+    </div>
+  )
+}
+
 export default function ProblemView() {
   const { id } = useParams()
   const problem = useProblem(Number(id))
@@ -1152,55 +1215,7 @@ export default function ProblemView() {
                   </div>
                 )}
                 {aiReady && hintOpen && (
-                  <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 p-3">
-                    <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Sparkles className="size-3.5 text-blue-500" />
-                      AI 教练 · 分层提示（不给答案）
-                    </div>
-                    <div className="space-y-2">
-                      {hints.map((h, i) => (
-                        <div key={i} className="text-sm leading-relaxed">
-                          <span className="mr-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
-                            第 {i + 1} 层
-                          </span>
-                          {h}
-                          {hintBusy && i === hints.length - 1 && (
-                            <Loader2 className="ml-1 inline size-3.5 animate-spin text-blue-500" />
-                          )}
-                        </div>
-                      ))}
-                      {hintBusy && hints.length === 0 && (
-                        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <Loader2 className="size-3.5 animate-spin" /> 教练思考中…
-                        </p>
-                      )}
-                    </div>
-                    {hintError && (
-                      <div className="mt-2 rounded-lg bg-red-500/10 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
-                        {hintError}
-                        <button
-                          type="button"
-                          className="ml-2 underline underline-offset-2"
-                          onClick={() => void askHint(hints.length + 1)}
-                        >
-                          重试
-                        </button>
-                      </div>
-                    )}
-                    {hints.length < 3 ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-2"
-                        disabled={hintBusy}
-                        onClick={() => void askHint(hints.length + 1)}
-                      >
-                        <Lightbulb className="size-3.5" /> {hints.length === 0 ? '给个提示' : '还是卡着，再要一层'}
-                      </Button>
-                    ) : (
-                      <p className="mt-2 text-xs text-muted-foreground">三层用完了 -- 卡住就停，建议转「看题解」</p>
-                    )}
-                  </div>
+                  <HintPanel hints={hints} busy={hintBusy} error={hintError} onAsk={(lv) => void askHint(lv)} />
                 )}
                 <div className="flex flex-wrap gap-2">
                   {aiReady && (
@@ -1485,6 +1500,12 @@ export default function ProblemView() {
           <div className="min-h-0 flex-1 overflow-hidden rounded-xl border">
             <CodeEditor key={lang} value={code} onChange={setCode} lang={lang} height="100%" />
           </div>
+          {/* 提示面板：专注模式里教练也不能缺席，卡住不用退出去要提示 */}
+          {phase === 'attempt' && aiReady && hintOpen && (
+            <div className="mt-3 max-h-[30vh] shrink-0 overflow-y-auto">
+              <HintPanel hints={hints} busy={hintBusy} error={hintError} onAsk={(lv) => void askHint(lv)} />
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Timer
               remainSec={timer.remainSec}
@@ -1494,18 +1515,37 @@ export default function ProblemView() {
               onTogglePause={timer.togglePause}
               onReset={resetTimer}
             />
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <Button size="sm" variant="outline" onClick={runCases} disabled={!canRun || running}>
                 <Play className="size-3.5" /> 运行用例
               </Button>
               {phase === 'attempt' ? (
-                <Button size="sm" variant="destructive" className={cn(timer.overtime && 'ring-2 ring-amber-400 animate-pulse')} onClick={() => { setZen(false); seeSolution() }}>
-                  看题解
-                </Button>
+                <>
+                  {aiReady && (hintOpen ? (
+                    <Button size="sm" variant="ghost" onClick={() => setHintOpen(false)}>
+                      收起提示
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => { setHintOpen(true); if (hints.length === 0) void askHint(1) }}>
+                      <Lightbulb className="size-3.5" /> 给个提示
+                    </Button>
+                  ))}
+                  <Button size="sm" variant="destructive" className={cn(timer.overtime && 'ring-2 ring-amber-400 animate-pulse')} onClick={() => { setZen(false); seeSolution() }}>
+                    看题解
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setZen(false); selfSolved() }} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
+                    <CheckCircle2 className="size-3.5" /> 没看题解，直接过了
+                  </Button>
+                </>
               ) : (
-                <Button size="sm" onClick={() => { setZen(false); onReproducePass() }} disabled={!allPass}>
-                  默写通过
-                </Button>
+                <>
+                  <Button size="sm" onClick={() => { setZen(false); onReproducePass() }} disabled={!allPass} title={allPass ? '' : '需先跑通全部用例'}>
+                    默写通过
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => { setZen(false); onReproduceFail() }}>
+                    默写失败
+                  </Button>
+                </>
               )}
             </div>
           </div>
