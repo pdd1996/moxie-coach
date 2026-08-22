@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/table'
 import { useProblems } from '@/lib/store'
 import { STAGE_INFO, STATUS_LABEL, leetcodeUrl, type Problem, type Stage } from '@/lib/types'
+import { DIFF_BADGE } from '@/lib/badges'
 import { cn } from '@/lib/utils'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -17,12 +18,6 @@ const STATUS_BADGE: Record<string, string> = {
   learned: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
   mastered: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   skipped: 'bg-muted text-muted-foreground',
-}
-
-const DIFF_BADGE: Record<string, string> = {
-  Easy: 'text-emerald-600 dark:text-emerald-400',
-  Medium: 'text-amber-600 dark:text-amber-400',
-  Hard: 'text-red-600 dark:text-red-400',
 }
 
 function ProblemRow({ p }: { p: Problem }) {
@@ -45,7 +40,11 @@ function ProblemRow({ p }: { p: Problem }) {
           </StickyNote>
         )}
       </TableCell>
-      <TableCell className={cn('text-xs font-medium', DIFF_BADGE[p.difficulty])}>{p.difficulty}</TableCell>
+      <TableCell>
+        <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-medium', DIFF_BADGE[p.difficulty])}>
+          {p.difficulty}
+        </span>
+      </TableCell>
       <TableCell className="text-xs">{p.pattern}</TableCell>
       <TableCell className="hidden max-w-52 truncate text-xs text-muted-foreground md:table-cell">
         {p.signal ?? '-'}

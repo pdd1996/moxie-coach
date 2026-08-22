@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import {
   ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, ClipboardList, Eye, EyeOff, ExternalLink,
   Hourglass, Lightbulb, Loader2, Maximize2, Minimize2, PenLine, Play, RotateCcw, Save, ShieldAlert, Sparkles, Star, Upload, X, XCircle,
@@ -15,7 +16,8 @@ import { Timer } from '@/components/Timer'
 import { CodeEditor } from '@/components/CodeEditor'
 import { TestCaseEditor } from '@/components/TestCaseEditor'
 import { useProblem, useProblems, useUpdateProblem, useSettings } from '@/lib/store'
-import { STATUS_LABEL, leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
+import { leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/lib/types'
+import { DIFF_BADGE } from '@/lib/badges'
 import { parseEntry } from '@/lib/entry'
 import { parseMdFile, parseExamples } from '@/lib/import'
 import { failSchedule, passSchedule, REVIEWABLE_STATUSES, todayStr } from '@/lib/srs'
@@ -786,9 +788,14 @@ export default function ProblemView() {
     setImportMsg(`导入 ${imported} 题${skipped ? `，跳过 ${skipped} 个未匹配` : ''}${hitCurrent ? '（含当前题，已回填）' : ''}`)
   }
 
+  // 贴进来的题面是纯文本：小节标题（示例 1：/提示：/进阶：）单独成行时加粗，
+  // 让示例块和正文在视觉上分组；「输入/输出/解释」的换行保真交给 remark-breaks
+  const boldSectionHeads = (text: string) =>
+    text.replace(/^((?:示例\s*\d+|提示|进阶)\s*[:：])[ \t]*$/gm, '**$1**')
+
   const md = (text: string) => (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkBreaks]}
       components={{
         h2: ({ children }) => <h2 className="mb-2 mt-5 text-base font-bold first:mt-0">{children}</h2>,
         h3: ({ children }) => <h3 className="mb-1 mt-4 text-sm font-bold">{children}</h3>,
@@ -805,7 +812,7 @@ export default function ProblemView() {
         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
       }}
     >
-      {text}
+      {boldSectionHeads(text)}
     </ReactMarkdown>
   )
 
@@ -829,13 +836,30 @@ export default function ProblemView() {
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
       {/* 顶栏：只留必需品 -- 返回 / 标题 / 编辑题目 / 安静的时钟 */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Button asChild variant="ghost" size="icon">
           <Link to="/problems"><ArrowLeft className="size-4" /></Link>
         </Button>
-        <h1 className="truncate text-lg font-bold">
+        <h1 className="min-w-0 truncate text-lg font-bold">
           <span className="font-mono text-muted-foreground">#{problem.id}</span> {problem.title}
         </h1>
+        {/* 元数据跟标题成组；默写态不展示 -- pattern/难度是提示，防剧透 */}
+        {phase !== 'reproduce' && (
+          <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', DIFF_BADGE[problem.difficulty])}>
+              {problem.difficulty}
+            </span>
+            <Badge variant="outline" className="font-normal text-muted-foreground">{problem.pattern}</Badge>
+            {problem.lastFail && (
+              <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400" title="上次没默过">易错</Badge>
+            )}
+            {problem.self && (
+              <span title="我顺极了 -- 没看题解自己解出来的" className="inline-flex items-center text-amber-500">
+                <Star className="size-3.5" fill="currentColor" />
+              </span>
+            )}
+          </span>
+        )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {canEdit && (
             <Button variant="ghost" size="sm" onClick={editProblem} title="回到贴题面板编辑题面/模板/用例">
@@ -1070,30 +1094,18 @@ export default function ProblemView() {
               </>
             ) : (
               <>
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <BookOpen className="size-4" />
-                  <span className="text-sm font-bold">题目 · {problem.difficulty}</span>
-                  <Badge variant="outline">{problem.pattern}</Badge>
-                  <Badge variant="secondary">{STATUS_LABEL[problem.status]}</Badge>
-                  {problem.self && (
-                    <span title="我顺极了 —— 没看题解自己解出来的" className="inline-flex items-center text-amber-500">
-                      <Star className="size-3.5" fill="currentColor" />
-                    </span>
-                  )}
-                  {problem.lastFail && (
-                    <Badge variant="outline" className="text-amber-600 dark:text-amber-400" title="上次没默过">易错</Badge>
-                  )}
+                <div className="max-h-[600px] overflow-y-auto pr-2">{md(problem.statement ?? '')}</div>
+                <div className="mt-3 flex justify-end border-t pt-2">
                   <a
                     href={leetcodeUrl(problem)}
                     target="_blank"
                     rel="noreferrer"
                     title="LeetCode 题目页"
-                    className="ml-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   >
                     LeetCode <ExternalLink className="size-3" />
                   </a>
                 </div>
-                <div className="max-h-[600px] overflow-y-auto pr-2">{md(problem.statement ?? '')}</div>
               </>
             )}
           </div>
