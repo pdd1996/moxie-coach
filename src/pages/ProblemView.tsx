@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -20,6 +20,7 @@ import { leetcodeUrl, type AttemptHistory, type Lang, type TestCase } from '@/li
 import { DIFF_BADGE } from '@/lib/badges'
 import { parseEntry } from '@/lib/entry'
 import { parseMdFile, parseExamples } from '@/lib/import'
+import { splitStatement } from '@/lib/statement'
 import { failSchedule, passSchedule, REVIEWABLE_STATUSES, todayStr } from '@/lib/srs'
 import { useAttemptTimer } from '@/lib/useAttemptTimer'
 import { runCases as runJudgeCases, type CaseResult } from '@/lib/judge/runner'
@@ -816,6 +817,24 @@ export default function ProblemView() {
     </ReactMarkdown>
   )
 
+  // 题面分节渲染：正文走 md()；示例块结构化排版 --
+  // 题目与首个示例拉开（mt-6），示例之间收紧（mt-3），示例头贴住自己的输入/输出
+  const renderStatement = (text: string) => {
+    const segs = splitStatement(text)
+    return segs.map((seg, i) => {
+      if (seg.kind === 'md') return <Fragment key={i}>{md(seg.text)}</Fragment>
+      const first = i === 0 || segs[i - 1].kind === 'md'
+      return (
+        <div key={i} className={cn('mb-3', first ? 'mt-6' : 'mt-3')}>
+          <p className="mb-1 text-sm font-bold">{seg.head}</p>
+          {seg.lines.length > 0 && (
+            <p className="whitespace-pre-line text-sm leading-relaxed">{seg.lines.join('\n')}</p>
+          )}
+        </div>
+      )
+    })
+  }
+
   const inFlow = phase === 'attempt' || phase === 'reproduce'
   // 可回贴题面板编辑的阶段：默写(reproduce)不开放，避免借机看题解
   const canEdit = phase === 'attempt' || phase === 'solution' || phase === 'done'
@@ -1076,7 +1095,7 @@ export default function ProblemView() {
                     <span className="text-muted-foreground">{problem.note}</span>
                   </div>
                 )}
-                <div className="max-h-[520px] overflow-y-auto pr-2">{md(problem.statement ?? '')}</div>
+                <div className="max-h-[520px] overflow-y-auto pr-2">{renderStatement(problem.statement ?? '')}</div>
                 <Button
                   variant="outline"
                   className="mt-4 w-full"
@@ -1094,7 +1113,7 @@ export default function ProblemView() {
               </>
             ) : (
               <>
-                <div className="max-h-[600px] overflow-y-auto pr-2">{md(problem.statement ?? '')}</div>
+                <div className="max-h-[600px] overflow-y-auto pr-2">{renderStatement(problem.statement ?? '')}</div>
                 <div className="mt-3 flex justify-end border-t pt-2">
                   <a
                     href={leetcodeUrl(problem)}
@@ -1606,7 +1625,7 @@ export default function ProblemView() {
           <DialogHeader>
             <DialogTitle>题目 · {problem.difficulty}</DialogTitle>
           </DialogHeader>
-          {md(problem.statement ?? '')}
+          {renderStatement(problem.statement ?? '')}
           <DialogFooter>
             <Button onClick={() => setZenStatementOpen(false)}>继续写代码</Button>
           </DialogFooter>
